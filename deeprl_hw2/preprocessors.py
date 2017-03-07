@@ -40,7 +40,7 @@ class HistoryPreprocessor(Preprocessor):
 
         Useful when you start a new episode.
         """
-        self.state_list = [np.zeros(self.new_size)] * self.history_length
+        self.state_list = [np.zeros(self.new_size, dtype=np.uint8)] * self.history_length
         return copy(self.state_list)
 
     def get_config(self):
@@ -99,23 +99,26 @@ class AtariPreprocessor(Preprocessor):
         img = Image.fromarray(state).resize(self.new_size).convert('L')
         return np.asarray(img)
 
-    def process_state_for_network(self, state):
+    def process_state_for_network(self, state_mem):
         """Scale, convert to greyscale and store as float32.
 
         Basically same as process state for memory, but this time
         outputs float32 images.
         """
-        img = Image.fromarray(state).convert('F')
-        return np.asarray(img)
+        return [np.asarray(Image.fromarray(st).convert('F')) for st in state_mem]
 
-    #~ def process_batch(self, samples):
-        #~ """The batches from replay memory will be uint8, convert to float32.
+    def process_batch(self, samples):
+        """The batches from replay memory will be uint8, convert to float32.
 
-        #~ Same as process_state_for_network but works on a batch of
-        #~ samples from the replay memory. Meaning you need to convert
-        #~ both state and next state values.
-        #~ """
-        #~ return [self.process_state_for_network(state) for state in samples]
+        Same as process_state_for_network but works on a batch of
+        samples from the replay memory. Meaning you need to convert
+        both state and next state values.
+        """
+        processed_batch = []
+        for state_mem, action, reward, state_mem_next, done in samples:
+            state = self.process_state_for_network(state_mem)
+            processed_batch.append((state, action, reward, state_mem_next, done))
+        return processed_batch
 
     def process_reward(self, reward):
         """Clip reward between -1 and 1."""

@@ -1,3 +1,7 @@
+
+import numpy as np
+import random
+
 """Main DQN agent."""
 
 class DQNAgent(object):
@@ -44,7 +48,7 @@ class DQNAgent(object):
                  memory,
                  policy,
                  gamma,
-                 target_update_freq,
+                 target_reset_interval,
                  num_burn_in,
                  train_freq,
                  batch_size):
@@ -53,7 +57,7 @@ class DQNAgent(object):
         self.memory = memory
         self.policy = policy
         self.gamma = gamma
-        self.target_update_freq = target_update_freq
+        self.target_reset_interval = target_reset_interval
         self.num_burn_in = num_burn_in
         self.train_freq = train_freq
         self.batch_size = batch_size
@@ -75,7 +79,8 @@ class DQNAgent(object):
         keras.optimizers.Optimizer class. Specifically the Adam
         optimizer.
         """
-        self.q_network.compile(loss=loss_func, optimizer=optimizer)
+        self.q_network['online'].compile(loss=loss_func, optimizer=optimizer)
+        self.q_network['target'].compile(loss=loss_func, optimizer=optimizer)
 
     def calc_q_values(self, state):
         """Given a state (or batch of states) calculate the Q-values.
@@ -155,54 +160,97 @@ class DQNAgent(object):
           resets. Can help exploration.
         """
         
-        env.reset()
-        state = self.preprocessor['history'].reset()
-        done = False
-        for _ in range(num_iterations):
-            env.render()
+        input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape']
+        
+        iter_num = 0
+        episode = 0
+        while iter_num < num_iterations:
+            env.reset()
+            state_mem = self.preprocessor['history'].reset()
+            state = self.preprocessor['atari'].process_state_for_network(state_mem)
+            done = False
             
-            # get online q value and get action
-            state_arr = np.stack(state)
-            input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape']
-            state_arr = state_arr.reshape(list(input_shape[1:]))
-            
-            input_state = np.zeros([1] + list(state_arr.shape))
-            input_state[0] = state_arr
-            q_online = self.q_network['online'].predict(input_state)
-            action = self.policy['train'].select_action(q_online)
-            
-            # do action to get the next state
-            obs_next, reward, done, info = env.step(action)
-            
-            # process state
-            obs_next_mem_grey = self.preprocessor['atari'].process_state_for_memory(obs_next)
-            obs_next_grey = self.preprocessor['atari'].process_state_for_network(obs_next)
-            
-            state_mem_next = self.preprocessor['history'].process_state_for_network(obs_next_mem_grey)
-            state_next = self.preprocessor['history'].process_state_for_network(obs_next_grey)
-            
-            # store transition into replay memory
-            transition = (state, action, reward, state_next, done)
-            if self.memory is not None: # self.memory should be a deque with a max length
-                self.memory.append(transition)
-            
-            # calculate target
-            q_target = self.q_network['target'].predict(input_state)
-            target = np.zeros([1, len(q_target)])
-            if done:
-                target[0, action] = reward
-                env.reset()
-                state_next = self.preprocessor['history'].reset()
-                done = False
-            else:
-                target[0, action] = reward + self.gamma * np.max(q_target)
-            
-            # update networks
-            if self.memory is None:
-                print self.q_network['online'].train_on_batch(input_state)
-                self.q_network['target'] = deepcopy(self.q_network['online'])
-            else:
-                pass
+            episode_counter = 0
+            print '##########begin new episode#############'
+            while episode_counter < max_episode_length or max_episode_length is None:
+                print 'episode %d' % episode
+                print iter_num
+                env.render()
+                # get online q value and get action
+                
+                state_arr = np.stack(state)
+                state_arr = state_arr.reshape(input_shape[1:])
+                input_state = np.zeros([1] + list(state_arr.shape), dtype=np.float32)
+                input_state[0] = state_arr
+                q_online = self.q_network['online'].predict(input_state)
+                action = self.policy['train'].select_action(q_online, iter_num)
+                
+                # do action to get the next state
+                obs_next, reward, done, info = env.step(action)
+                reward = self.preprocessor['atari'].process_reward(reward)
+                
+                # process state
+                obs_next_mem_grey = self.preprocessor['atari'].process_state_for_memory(obs_next)
+                state_mem_next = self.preprocessor['history'].process_state_for_network(obs_next_mem_grey)
+                state_next = self.preprocessor['atari'].process_state_for_network(state_mem_next)
+                
+                # store transition into replay memory
+                transition_mem = (state_mem, action, reward, state_mem_next, done)
+                if self.memory is not None: # self.memory should be a deque with a max length
+                    self.memory.append(transition_mem)
+                
+                
+                # update networks
+                if self.memory is None:
+                    state_arr_next = np.stack(state_next)
+                    state_arr_next = state_arr_next.reshape(input_shape[1:])
+                    input_state_next = np.zeros([1] + list(state_arr_next.shape), dtype=np.float32)
+                    input_state_next[0] = state_arr_next
+                    
+                    q_target_next = self.q_network['target'].predict(input_state_next)
+                    target = np.zeros(q_target_next.shape, dtype=np.float32)
+                    if done:
+                        target[0, action] = reward
+                    else:
+                        target[0, action] = reward + self.gamma * np.max(q_target_next)
+                    #~ import pdb; pdb.set_trace()
+                    self.q_network['online'].train_on_batch(input_state, target)
+                    self.q_network['target'].set_weights(self.q_network['online'].get_weights())
+                elif len(self.memory) >= self.batch_size:
+                    mini_batch = random.sample(self.memory, self.batch_size)
+                    input_b = []
+                    input_b_n = []
+                    for st_m, act, rew, st_m_n, done_b in mini_batch:
+                        st = self.preprocessor['atari'].process_state_for_network(st_m)
+                        st = np.stack(st).reshape(input_shape[1:])
+                        input_b.append(st)
+                        st_n = self.preprocessor['atari'].process_state_for_network(st_m_n)
+                        st_n = np.stack(st_n).reshape(input_shape[1:])
+                        input_b_n.append(st_n)
+                    input_b = np.stack(input_b)
+                    input_b_n = np.stack(input_b_n)
+                    q_target_b_n = self.q_network['target'].predict(input_b_n)
+                    #~ import pdb; pdb.set_trace()
+                    target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
+                    for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
+                        if done_b:
+                            target_b[idx, act] = rew
+                        else:
+                            target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
+                    curr_value = self.q_network['online'].train_on_batch(input_b, target_b)
+                    print curr_value
+                    if iter_num % self.target_reset_interval == 0:
+                        print 'update update update update update'
+                        self.q_network['target'].set_weights(self.q_network['online'].get_weights())
+                
+                state_mem = state_mem_next
+                state = state_next
+                episode_counter += 1
+                iter_num += 1
+                if done:
+                    break
+            episode += 1
+                    
 
     def evaluate(self, env, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.

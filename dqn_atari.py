@@ -5,12 +5,11 @@ import os
 import random
 import subprocess
 
-from copy import deepcopy
-
 import numpy as np
 import tensorflow as tf
 from keras.layers import (Activation, Convolution2D, Dense, Flatten, Input,
                           Permute)
+from keras.initializations import normal, identity
 from keras.models import Model, Sequential
 from keras.optimizers import Adam
 
@@ -20,6 +19,8 @@ from deeprl_hw2.objectives import mean_huber_loss
 from deeprl_hw2.preprocessors import AtariPreprocessor, HistoryPreprocessor
 from deeprl_hw2.policy import *
 
+import gym
+from collections import deque
 
 def create_model(window, input_shape, num_actions,
                  model_name='q_network'):  # noqa: D103
@@ -50,7 +51,31 @@ def create_model(window, input_shape, num_actions,
     keras.models.Model
       The Q-model.
     """
-    pass
+    if model_name == 'linear':
+        model = Sequential()
+        model.add(Dense(num_actions, input_dim=np.prod(input_shape) * window))
+    elif model_name == 'dqn':
+        model = Sequential()
+        conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
+            init='uniform',
+            border_mode='same', input_shape=[window] + list(input_shape))
+        model.add(conv1)
+        model.add(Activation('relu'))
+        conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
+            init='uniform',
+            border_mode='same')
+        model.add(conv2)
+        model.add(Activation('relu'))
+        conv3 = Convolution2D(64, 3, 3, subsample=(1, 1),
+            init='uniform',
+            border_mode='same')
+        model.add(conv3)
+        model.add(Activation('relu'))
+        model.add(Flatten())
+        model.add(Dense(512, init=lambda shape, name: normal(shape, scale=0.01, name=name)))
+        model.add(Activation('relu'))
+        model.add(Dense(num_actions, init=lambda shape, name: normal(shape, scale=0.01, name=name)))
+    return model
 
 
 def get_output_folder(parent_dir, env_name):
@@ -105,8 +130,10 @@ def main():  # noqa: D103
                         help='Number of frames in a state')
     parser.add_argument('--discount', default=0.99, type=float,
                         help='Discount factor gamma')
-    parser.add_argument('--target_update_freq', default=1.0, type=float,
-                        help='Frequency to update the target network')
+    parser.add_argument('--replay_buffer_size', default=0, type=int,
+                        help='Replay buffer size')
+    parser.add_argument('--target_reset_interval', default=10000, type=int,
+                        help='Interval to reset the target network')
     parser.add_argument('--num_burn_in', default=1000, type=int,
                         help='Number of samples filled in memory before update')
     parser.add_argument('--train_freq', default=1, type=int,
@@ -118,6 +145,13 @@ def main():  # noqa: D103
                         help='Learning rate alpha')
     parser.add_argument('--explore_prob', default=0.05, type=float,
                         help='Exploration probability in epsilon-greedy')
+    parser.add_argument('--num_train', default=5000000, type=int,
+                        help='Number of training sampled interactions with the environment')
+    parser.add_argument('--max_episode_length', default=None, type=int,
+                        help='Number of training sampled interactions with the environment')
+    
+    parser.add_argument('--model_name', default='linear', type=str,
+                        help='Model name')
     
     args = parser.parse_args()
     args.input_shape = tuple(args.input_shape)
@@ -125,77 +159,50 @@ def main():  # noqa: D103
     args.output = get_output_folder(args.output, args.env)
     
     
-    import gym
     env = gym.make(args.env)
-    #~ env.reset()
     
     num_actions = len(env.get_action_meanings())
-    len_input = np.prod(args.input_shape) * args.num_frame
     
-    #~ if args.model == 'LinQN':
-    model = Sequential()
-    model.add(Dense(num_actions, input_dim=len_input))
-    model.compile(loss='mse', optimizer='rmsprop')
+    opt_adam = Adam(lr=args.learning_rate)
+    
+    model_online = create_model(args.num_frame, args.input_shape, num_actions,
+                                model_name=args.model_name)
+    model_target = create_model(args.num_frame, args.input_shape, num_actions,
+                                model_name=args.model_name)
+    
+    #~ model = Sequential()
+    #~ model.add(Dense(num_actions, input_dim=len_input))
+    #~ model.compile(loss=mean_huber_loss, optimizer=opt_adam)
+    
+    #~ target_model = Sequential()
+    #~ target_model.add(Dense(num_actions, input_dim=len_input))
+    #~ target_model.compile(loss=mean_huber_loss, optimizer=opt_adam)
     
     q_network = {}
-    q_network['online'] = model
-    q_network['target'] = deepcopy(q_network['online'])
+    q_network['online'] = model_online
+    q_network['target'] = model_target
     
     proc = {}
     proc['atari'] = AtariPreprocessor(args.input_shape)
-    proc['history'] = HistoryPreprocessor(args.input_shape)
-    memory = None
+    proc['history'] = HistoryPreprocessor(args.input_shape, history_length=args.num_frame)
+    
+    if args.replay_buffer_size == 0:
+        memory = None
+    else:
+        memory = deque(maxlen=args.replay_buffer_size)
     
     policy = {}
-    policy['train'] = GreedyEpsilonPolicy(args.explore_prob, num_actions)
+    policy['train'] = LinearDecayGreedyEpsilonPolicy(args.explore_prob,
+                                                     args.explore_prob * 0.5,
+                                                     args.num_train)
     
-    agent = DQNAgent(model, proc, memory, policy,
-                     args.discount, args.target_update_freq,
+    agent = DQNAgent(q_network, proc, memory, policy,
+                     args.discount, args.target_reset_interval,
                      args.num_burn_in, args.train_freq, args.batch_size)
     
+    agent.compile(opt_adam, mean_huber_loss)
     
-    
-    
-    #~ observation, reward, done, info = env.step(env.action_space.sample())
-    #~ done = False
-    #~ proc_obs = proc.process_state_for_network(observation)
-    #~ frame_buffer = [proc_obs for _ in range(args.num_frame)]
-    
-    for _ in range(100):
-        env.reset()
-        observation, reward, done, info = env.step(env.action_space.sample())
-        proc_obs = proc.process_state_for_network(observation)
-        frame_buffer = [proc_obs for _ in range(args.num_frame)]
-        state_batch = []
-        target_batch = []
-        while not done:
-        #~ for _ in range(500):
-            env.render()
-            state_vec = np.concatenate([f.ravel() for f in frame_buffer])
-            state_vec = state_vec.reshape(1, -1)
-            #~ import pdb; pdb.set_trace()
-            q_values = model.predict(state_vec)
-            action = np.argmax(q_values)
-            observation, reward, done, info = env.step(action)
-            
-            state_batch.append(state_vec)
-            
-            target = np.zeros(num_actions)
-            if done:
-                target[action] = reward
-            else:
-                target[action] = reward + args.discount * np.max(q_values)
-            
-            target_batch.append(target)
-            
-            proc_obs = proc.process_state_for_network(observation)
-            frame_buffer.pop(0)
-            frame_buffer.append(proc_obs)
-        
-        state_batch = np.vstack(state_batch)
-        target_batch = np.vstack(target_batch)
-        #~ import pdb; pdb.set_trace()
-        print model.train_on_batch(state_batch, target_batch)
+    agent.fit(env, args.num_train, args.max_episode_length)
         
         
         
