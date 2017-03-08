@@ -100,12 +100,9 @@ class AtariPreprocessor(Preprocessor):
         return np.asarray(img)
 
     def process_state_for_network(self, state_mem):
-        """Scale, convert to greyscale and store as float32.
-
-        Basically same as process state for memory, but this time
-        outputs float32 images.
+        """Convert list of uint8 arrays into a stacked state
         """
-        return [np.asarray(Image.fromarray(st).convert('F')) for st in state_mem]
+        return np.stack([np.asarray(Image.fromarray(st).convert('F')) for st in state_mem])
 
     def process_batch(self, samples):
         """The batches from replay memory will be uint8, convert to float32.
@@ -122,7 +119,12 @@ class AtariPreprocessor(Preprocessor):
 
     def process_reward(self, reward):
         """Clip reward between -1 and 1."""
-        return np.clip(reward, -1, 1)
+        if reward > 0.0:
+            return 1.0;
+        elif reward < 0.0:
+            return -1.0
+        else:
+            return 0.0
 
 
 class PreprocessorSequence(Preprocessor):

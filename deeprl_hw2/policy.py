@@ -109,7 +109,7 @@ class GreedyEpsilonPolicy(Policy):
           The action index chosen.
         """
         if np.random.rand() < self.epsilon:
-            return np.random.randint(0, len(q_values))
+            return np.random.randint(0, q_values.shape[1])
         else:
             return np.argmax(q_values)
 
@@ -154,8 +154,9 @@ class LinearDecayGreedyEpsilonPolicy(Policy):
         wt_end = min(iter_num / self.num_steps, 1.0)
         wt_start = 1.0 - wt_end
         epsilon = self.start_value * wt_start + self.end_value * wt_end
-        if np.random.rand() < epsilon:
-            return np.random.randint(0, len(q_values))
+        print 'epsilon:', epsilon
+        if np.random.rand() <= epsilon:
+            return np.random.randint(0, q_values.shape[1])
         else:
             return np.argmax(q_values)
 

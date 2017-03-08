@@ -43,6 +43,7 @@ class DQNAgent(object):
       How many samples in each minibatch.
     """
     def __init__(self,
+                 state_shape,
                  q_network,
                  preprocessor,
                  memory,
@@ -52,6 +53,7 @@ class DQNAgent(object):
                  num_burn_in,
                  train_freq,
                  batch_size):
+        self.state_shape = state_shape
         self.q_network = q_network
         self.preprocessor = preprocessor
         self.memory = memory
@@ -160,14 +162,15 @@ class DQNAgent(object):
           resets. Can help exploration.
         """
         
-        input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape']
+        input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape'][1:]
+        window = self.state_shape[0]
         
         iter_num = 0
         episode = 0
         while iter_num < num_iterations:
             env.reset()
-            state_mem = self.preprocessor['history'].reset()
-            state = self.preprocessor['atari'].process_state_for_network(state_mem)
+            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            state = self.preprocessor.process_state_for_network(state_mem)
             done = False
             
             episode_counter = 0
@@ -175,37 +178,38 @@ class DQNAgent(object):
             while episode_counter < max_episode_length or max_episode_length is None:
                 print 'episode %d' % episode
                 print iter_num
-                env.render()
-                # get online q value and get action
                 
-                state_arr = np.stack(state)
-                state_arr = state_arr.reshape(input_shape[1:])
-                input_state = np.zeros([1] + list(state_arr.shape), dtype=np.float32)
-                input_state[0] = state_arr
+                # get online q value and get action
+                input_state = np.stack([state.reshape(input_shape)])
                 q_online = self.q_network['online'].predict(input_state)
                 action = self.policy['train'].select_action(q_online, iter_num)
+                print env.get_action_meanings()[action]
                 
                 # do action to get the next state
-                obs_next, reward, done, info = env.step(action)
-                reward = self.preprocessor['atari'].process_reward(reward)
+                state_mem_next = []
+                reward = 0.0
+                done = False
+                for _ in range(window):
+                    obs_next, obs_reward, obs_done, info = env.step(action)
+                    env.render()
+                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
+                    state_mem_next.append(obs_next_mem)
+                    reward += obs_reward
+                    done = done or obs_done
+                state_mem_next = np.stack(state_mem_next)
                 
-                # process state
-                obs_next_mem_grey = self.preprocessor['atari'].process_state_for_memory(obs_next)
-                state_mem_next = self.preprocessor['history'].process_state_for_network(obs_next_mem_grey)
-                state_next = self.preprocessor['atari'].process_state_for_network(state_mem_next)
+                state_next = self.preprocessor.process_state_for_network(state_mem_next)
+                reward = self.preprocessor.process_reward(reward)
+                print 'reward:', reward
                 
                 # store transition into replay memory
                 transition_mem = (state_mem, action, reward, state_mem_next, done)
                 if self.memory is not None: # self.memory should be a deque with a max length
                     self.memory.append(transition_mem)
                 
-                
                 # update networks
                 if self.memory is None:
-                    state_arr_next = np.stack(state_next)
-                    state_arr_next = state_arr_next.reshape(input_shape[1:])
-                    input_state_next = np.zeros([1] + list(state_arr_next.shape), dtype=np.float32)
-                    input_state_next[0] = state_arr_next
+                    input_state_next = np.stack([state_next.reshape(input_shape)])
                     
                     q_target_next = self.q_network['target'].predict(input_state_next)
                     target = np.zeros(q_target_next.shape, dtype=np.float32)
@@ -213,24 +217,21 @@ class DQNAgent(object):
                         target[0, action] = reward
                     else:
                         target[0, action] = reward + self.gamma * np.max(q_target_next)
-                    #~ import pdb; pdb.set_trace()
-                    self.q_network['online'].train_on_batch(input_state, target)
+                    print self.q_network['online'].train_on_batch(input_state, target)
                     self.q_network['target'].set_weights(self.q_network['online'].get_weights())
                 elif len(self.memory) >= self.batch_size:
                     mini_batch = random.sample(self.memory, self.batch_size)
                     input_b = []
                     input_b_n = []
                     for st_m, act, rew, st_m_n, done_b in mini_batch:
-                        st = self.preprocessor['atari'].process_state_for_network(st_m)
-                        st = np.stack(st).reshape(input_shape[1:])
-                        input_b.append(st)
-                        st_n = self.preprocessor['atari'].process_state_for_network(st_m_n)
-                        st_n = np.stack(st_n).reshape(input_shape[1:])
-                        input_b_n.append(st_n)
+                        st = self.preprocessor.process_state_for_network(st_m)
+                        input_b.append(st.reshape(input_shape))
+                        st_n = self.preprocessor.process_state_for_network(st_m_n)
+                        input_b_n.append(st_n.reshape(input_shape))
                     input_b = np.stack(input_b)
                     input_b_n = np.stack(input_b_n)
                     q_target_b_n = self.q_network['target'].predict(input_b_n)
-                    #~ import pdb; pdb.set_trace()
+                    
                     target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
                     for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
                         if done_b:
@@ -265,4 +266,41 @@ class DQNAgent(object):
         You can also call the render function here if you want to
         visually inspect your policy.
         """
-        pass
+        input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape'][1:]
+        window = self.state_shape[0]
+        for episode in range(num_episodes):
+            print '##########begin new episode#############'
+            env.reset()
+            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            state = self.preprocessor.process_state_for_network(state_mem)
+            done = False
+            episode_counter = 0
+            print 'episode %d' % episode
+            while episode_counter < max_episode_length or max_episode_length is None:
+                
+                # get online q value and get action
+                input_state = np.stack([state.reshape(input_shape)])
+                q_online = self.q_network['online'].predict(input_state)
+                action = self.policy['evaluation'].select_action(q_online)
+                
+                # do action to get the next state
+                state_mem_next = []
+                reward = 0.0
+                done = False
+                for _ in range(window):
+                    obs_next, obs_reward, obs_done, info = env.step(action)
+                    env.render()
+                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
+                    state_mem_next.append(obs_next_mem)
+                    reward += obs_reward
+                    done = done or obs_done
+                state_mem_next = np.stack(state_mem_next)
+                
+                state_next = self.preprocessor.process_state_for_network(state_mem_next)
+                reward = self.preprocessor.process_reward(reward)
+                
+                state_mem = state_mem_next
+                state = state_next
+                episode_counter += 1
+                if done:
+                    break

@@ -2,6 +2,7 @@
 """Run Atari Environment with DQN."""
 import argparse
 import os
+import sys
 import random
 import subprocess
 
@@ -21,6 +22,39 @@ from deeprl_hw2.policy import *
 
 import gym
 from collections import deque
+import cPickle as pickle
+
+def query_yes_no(question, default="no"):
+    """Ask a yes/no question via raw_input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+        It must be "yes" (the default), "no" or None (meaning
+        an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True,
+             "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = raw_input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
 
 def create_model(window, input_shape, num_actions,
                  model_name='q_network'):  # noqa: D103
@@ -56,25 +90,20 @@ def create_model(window, input_shape, num_actions,
         model.add(Dense(num_actions, input_dim=np.prod(input_shape) * window))
     elif model_name == 'dqn':
         model = Sequential()
-        conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
+        conv1 = Convolution2D(16, 8, 8, subsample=(4, 4),
             init='uniform',
             border_mode='same', input_shape=[window] + list(input_shape))
         model.add(conv1)
         model.add(Activation('relu'))
-        conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
+        conv2 = Convolution2D(32, 4, 4, subsample=(2, 2),
             init='uniform',
             border_mode='same')
         model.add(conv2)
         model.add(Activation('relu'))
-        conv3 = Convolution2D(64, 3, 3, subsample=(1, 1),
-            init='uniform',
-            border_mode='same')
-        model.add(conv3)
-        model.add(Activation('relu'))
         model.add(Flatten())
-        model.add(Dense(512, init=lambda shape, name: normal(shape, scale=0.01, name=name)))
+        model.add(Dense(256, init='uniform'))
         model.add(Activation('relu'))
-        model.add(Dense(num_actions, init=lambda shape, name: normal(shape, scale=0.01, name=name)))
+        model.add(Dense(num_actions, init='uniform'))
     return model
 
 
@@ -97,8 +126,6 @@ def get_output_folder(parent_dir, env_name):
     parent_dir/run_dir
       Path to this run's save directory.
     """
-    
-    subprocess.call(["mkdir", "-p", parent_dir])
     #~ os.makedirs(parent_dir, exist_ok=True)
     experiment_id = 0
     for folder_name in os.listdir(parent_dir):
@@ -114,6 +141,7 @@ def get_output_folder(parent_dir, env_name):
 
     parent_dir = os.path.join(parent_dir, env_name)
     parent_dir = parent_dir + '-run{}'.format(experiment_id)
+    subprocess.call(["mkdir", "-p", parent_dir])
     return parent_dir
 
 
@@ -152,11 +180,16 @@ def main():  # noqa: D103
     
     parser.add_argument('--model_name', default='linear', type=str,
                         help='Model name')
+    parser.add_argument('--read_weight', default=None, type=str,
+                        help='Read weight from $read_weight/online_weight.save')
     
     args = parser.parse_args()
     args.input_shape = tuple(args.input_shape)
-
-    args.output = get_output_folder(args.output, args.env)
+    
+    if args.read_weight is None:
+        args.output = get_output_folder(args.output, args.env)
+    else:
+        args.output = args.read_weight
     
     
     env = gym.make(args.env)
@@ -170,21 +203,11 @@ def main():  # noqa: D103
     model_target = create_model(args.num_frame, args.input_shape, num_actions,
                                 model_name=args.model_name)
     
-    #~ model = Sequential()
-    #~ model.add(Dense(num_actions, input_dim=len_input))
-    #~ model.compile(loss=mean_huber_loss, optimizer=opt_adam)
-    
-    #~ target_model = Sequential()
-    #~ target_model.add(Dense(num_actions, input_dim=len_input))
-    #~ target_model.compile(loss=mean_huber_loss, optimizer=opt_adam)
-    
     q_network = {}
     q_network['online'] = model_online
     q_network['target'] = model_target
     
-    proc = {}
-    proc['atari'] = AtariPreprocessor(args.input_shape)
-    proc['history'] = HistoryPreprocessor(args.input_shape, history_length=args.num_frame)
+    proc = AtariPreprocessor(args.input_shape)
     
     if args.replay_buffer_size == 0:
         memory = None
@@ -192,20 +215,37 @@ def main():  # noqa: D103
         memory = deque(maxlen=args.replay_buffer_size)
     
     policy = {}
-    policy['train'] = LinearDecayGreedyEpsilonPolicy(args.explore_prob,
-                                                     args.explore_prob * 0.5,
+    policy['train'] = LinearDecayGreedyEpsilonPolicy(1.0,
+                                                     args.explore_prob,
                                                      args.num_train)
+    policy['evaluation'] = GreedyEpsilonPolicy(args.explore_prob)
+    state_shape = tuple([args.num_frame] + list(args.input_shape))
     
-    agent = DQNAgent(q_network, proc, memory, policy,
+    agent = DQNAgent(state_shape, q_network, proc, memory, policy,
                      args.discount, args.target_reset_interval,
                      args.num_burn_in, args.train_freq, args.batch_size)
     
     agent.compile(opt_adam, mean_huber_loss)
     
-    agent.fit(env, args.num_train, args.max_episode_length)
-        
-        
-        
+    try:
+        if args.read_weight:
+            with open(os.path.join(args.output, 'online_weight.save'), 'rb') as save:
+                saved_weights, agent.memory = pickle.load(save)
+            agent.q_network['online'].set_weights(saved_weights)
+            agent.q_network['target'].set_weights(saved_weights)
+        print '########## training #############'
+        agent.fit(env, args.num_train, args.max_episode_length)
+    except:
+        pass
+    
+    write_weight = query_yes_no('write weight to ' + args.output + ' ?')
+    if write_weight:
+        with open(os.path.join(args.output, 'online_weight.save'), 'wb') as save:
+            weights = q_network['online'].get_weights()
+            pickle.dump((weights, agent.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    print '########## evaluation #############'
+    agent.evaluate(env, num_episodes=100)
     
 
     # here is where you should start up a session,
