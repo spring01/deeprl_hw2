@@ -169,7 +169,7 @@ def main():  # noqa: D103
     parser.add_argument('--batch_size', default=32, type=int,
                         help='How many samples in each minibatch')
     
-    parser.add_argument('--learning_rate', default=1e-4, type=float,
+    parser.add_argument('--learning_rate', default=1e-6, type=float,
                         help='Learning rate alpha')
     parser.add_argument('--explore_prob', default=0.05, type=float,
                         help='Exploration probability in epsilon-greedy')
@@ -186,10 +186,7 @@ def main():  # noqa: D103
     args = parser.parse_args()
     args.input_shape = tuple(args.input_shape)
     
-    if args.read_weight is None:
-        args.output = get_output_folder(args.output, args.env)
-    else:
-        args.output = args.read_weight
+    args.output = get_output_folder(args.output, args.env)
     
     
     env = gym.make(args.env)
@@ -212,13 +209,13 @@ def main():  # noqa: D103
     if args.replay_buffer_size == 0:
         memory = None
     else:
-        memory = deque(maxlen=args.replay_buffer_size)
+        memory = deque(maxlen=(args.replay_buffer_size / args.num_frame))
     
     policy = {}
     policy['train'] = LinearDecayGreedyEpsilonPolicy(1.0,
                                                      args.explore_prob,
                                                      args.num_train)
-    policy['evaluation'] = GreedyEpsilonPolicy(args.explore_prob)
+    policy['evaluation'] = GreedyEpsilonPolicy(0.0)
     state_shape = tuple([args.num_frame] + list(args.input_shape))
     
     agent = DQNAgent(state_shape, q_network, proc, memory, policy,
@@ -229,20 +226,22 @@ def main():  # noqa: D103
     
     try:
         if args.read_weight:
-            with open(os.path.join(args.output, 'online_weight.save'), 'rb') as save:
+            weight_read_name = os.path.join(args.read_weight)
+            with open(weight_read_name, 'rb') as save:
                 saved_weights, agent.memory = pickle.load(save)
             agent.q_network['online'].set_weights(saved_weights)
             agent.q_network['target'].set_weights(saved_weights)
+            print 'weights & memory read from {:s}'.format(weight_read_name)
         print '########## training #############'
         agent.fit(env, args.num_train, args.max_episode_length)
     except:
         pass
     
-    write_weight = query_yes_no('write weight to ' + args.output + ' ?')
-    if write_weight:
-        with open(os.path.join(args.output, 'online_weight.save'), 'wb') as save:
-            weights = q_network['online'].get_weights()
-            pickle.dump((weights, agent.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
+    weight_save_name = os.path.join(args.output, 'online_weight.save')
+    with open(weight_save_name, 'wb') as save:
+        weights = q_network['online'].get_weights()
+        pickle.dump((weights, agent.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
+    print 'weights & memory written to {:s}'.format(weight_save_name)
     
     print '########## evaluation #############'
     agent.evaluate(env, num_episodes=100)

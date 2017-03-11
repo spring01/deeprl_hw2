@@ -176,14 +176,14 @@ class DQNAgent(object):
             episode_counter = 0
             print '##########begin new episode#############'
             while episode_counter < max_episode_length or max_episode_length is None:
-                print 'episode %d' % episode
-                print iter_num
+                #~ print 'episode %d' % episode
+                #~ print iter_num
                 
                 # get online q value and get action
                 input_state = np.stack([state.reshape(input_shape)])
                 q_online = self.q_network['online'].predict(input_state)
                 action = self.policy['train'].select_action(q_online, iter_num)
-                print env.get_action_meanings()[action]
+                #~ print env.get_action_meanings()[action]
                 
                 # do action to get the next state
                 state_mem_next = []
@@ -200,7 +200,7 @@ class DQNAgent(object):
                 
                 state_next = self.preprocessor.process_state_for_network(state_mem_next)
                 reward = self.preprocessor.process_reward(reward)
-                print 'reward:', reward
+                #~ print 'reward:', reward
                 
                 # store transition into replay memory
                 transition_mem = (state_mem, action, reward, state_mem_next, done)
@@ -234,12 +234,14 @@ class DQNAgent(object):
                     
                     target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
                     for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
+                        #~ if rew != 0.0:
+                            #~ print 'got reward {:f}'.format(rew)
                         if done_b:
                             target_b[idx, act] = rew
                         else:
                             target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
                     curr_value = self.q_network['online'].train_on_batch(input_b, target_b)
-                    print curr_value
+                    #~ print curr_value
                     if iter_num % self.target_reset_interval == 0:
                         print 'update update update update update'
                         self.q_network['target'].set_weights(self.q_network['online'].get_weights())
@@ -251,6 +253,8 @@ class DQNAgent(object):
                 if done:
                     break
             episode += 1
+            print curr_value
+            print '{:d} out of {:d} iterations'.format(iter_num, num_iterations)
                     
 
     def evaluate(self, env, num_episodes, max_episode_length=None):
@@ -268,6 +272,7 @@ class DQNAgent(object):
         """
         input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape'][1:]
         window = self.state_shape[0]
+        
         for episode in range(num_episodes):
             print '##########begin new episode#############'
             env.reset()
@@ -275,7 +280,8 @@ class DQNAgent(object):
             state = self.preprocessor.process_state_for_network(state_mem)
             done = False
             episode_counter = 0
-            print 'episode %d' % episode
+            #~ print 'episode %d' % episode
+            cum_reward = 0.0
             while episode_counter < max_episode_length or max_episode_length is None:
                 
                 # get online q value and get action
@@ -298,9 +304,10 @@ class DQNAgent(object):
                 
                 state_next = self.preprocessor.process_state_for_network(state_mem_next)
                 reward = self.preprocessor.process_reward(reward)
-                
+                cum_reward += reward
                 state_mem = state_mem_next
                 state = state_next
                 episode_counter += 1
                 if done:
                     break
+            print 'episode reward: {:f}'.format(cum_reward)
