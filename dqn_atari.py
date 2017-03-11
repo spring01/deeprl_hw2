@@ -17,7 +17,7 @@ from keras.optimizers import Adam
 import deeprl_hw2 as tfrl
 from deeprl_hw2.dqn import DQNAgent
 from deeprl_hw2.objectives import mean_huber_loss
-from deeprl_hw2.preprocessors import AtariPreprocessor, HistoryPreprocessor
+from deeprl_hw2.preprocessors import AtariPreprocessor
 from deeprl_hw2.policy import *
 
 import gym

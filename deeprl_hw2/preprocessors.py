@@ -8,44 +8,6 @@ from deeprl_hw2 import utils
 from deeprl_hw2.core import Preprocessor
 
 
-class HistoryPreprocessor(Preprocessor):
-    """Keeps the last k states.
-
-    Useful for domains where you need velocities, but the state
-    contains only positions.
-
-    When the environment starts, this will just fill the initial
-    sequence values with zeros k times.
-
-    Parameters
-    ----------
-    history_length: int
-      Number of previous states to prepend to state being processed.
-
-    """
-
-    def __init__(self, new_size, history_length=1):
-        self.new_size = new_size
-        self.history_length = history_length
-        self.reset()
-
-    def process_state_for_network(self, state):
-        """You only want history when you're deciding the current action to take."""
-        self.state_list.pop(0)
-        self.state_list.append(state)
-        return copy(self.state_list)
-
-    def reset(self):
-        """Reset the history sequence.
-
-        Useful when you start a new episode.
-        """
-        self.state_list = [np.zeros(self.new_size, dtype=np.uint8)] * self.history_length
-        return copy(self.state_list)
-
-    def get_config(self):
-        return {'history_length': self.history_length}
-
 
 class AtariPreprocessor(Preprocessor):
     """Converts images to greyscale and downscales.
@@ -126,22 +88,4 @@ class AtariPreprocessor(Preprocessor):
         else:
             return 0.0
 
-
-class PreprocessorSequence(Preprocessor):
-    """You may find it useful to stack multiple prepcrocesosrs (such as the History and the AtariPreprocessor).
-
-    You can easily do this by just having a class that calls each preprocessor in succession.
-
-    For example, if you call the process_state_for_network and you
-    have a sequence of AtariPreproccessor followed by
-    HistoryPreprocessor. This this class could implement a
-    process_state_for_network that does something like the following:
-
-    state = atari.process_state_for_network(state)
-    return history.process_state_for_network(state)
-    """
-    def __init__(self, new_size):
-        self.atari = AtariPreprocessor(new_size)
-        self.history = HistoryPreprocessor(new_size, history_length=4)
     
-    #~ def process_state_for_network(self, state):
