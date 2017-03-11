@@ -52,7 +52,10 @@ class DQNAgent(object):
                  target_reset_interval,
                  num_burn_in,
                  train_freq,
-                 batch_size):
+                 batch_size,
+                 eval_interval,
+                 eval_episodes,
+                 double_net):
         self.state_shape = state_shape
         self.q_network = q_network
         self.preprocessor = preprocessor
@@ -63,6 +66,9 @@ class DQNAgent(object):
         self.num_burn_in = num_burn_in
         self.train_freq = train_freq
         self.batch_size = batch_size
+        self.eval_interval = eval_interval
+        self.eval_episodes = eval_episodes
+        self.double_net = double_net
 
     def compile(self, optimizer, loss_func):
         """Setup all of the TF graph variables/ops.
@@ -119,7 +125,7 @@ class DQNAgent(object):
         pass
         
 
-    def update_policy(self):
+    def update_policy(self, iter_num):
         """Update your policy.
 
         Behavior may differ based on what stage of training your
@@ -134,7 +140,39 @@ class DQNAgent(object):
         You might want to return the loss and other metrics as an
         output. They can help you monitor how training is going.
         """
-        pass
+        mini_batch = random.sample(self.memory, self.batch_size)
+        input_b = []
+        input_b_n = []
+        for st_m, act, rew, st_m_n, done_b in mini_batch:
+            st = self.preprocessor.process_state_for_network(st_m)
+            input_b.append(st.reshape(self.input_shape))
+            st_n = self.preprocessor.process_state_for_network(st_m_n)
+            input_b_n.append(st_n.reshape(self.input_shape))
+        input_b = np.stack(input_b)
+        input_b_n = np.stack(input_b_n)
+        q_target_b_n = self.q_network['target'].predict(input_b_n)
+        
+        target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
+        for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
+            if done_b:
+                target_b[idx, act] = rew
+            else:
+                target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
+        
+        if self.double_net:
+            if np.random.rand() < 0.5:
+                loss_online = self.q_network['online'].train_on_batch(input_b, target_b)
+                loss_target = self.q_network['target'].evaluate(input_b, target_b, verbose=0)
+            else:
+                loss_target = self.q_network['target'].train_on_batch(input_b, target_b)
+                loss_online = self.q_network['online'].evaluate(input_b, target_b, verbose=0)
+        else:
+            loss_online = self.q_network['online'].train_on_batch(input_b, target_b)
+            loss_target = self.q_network['target'].evaluate(input_b, target_b, verbose=0)
+            if iter_num % self.target_reset_interval == 0:
+                print 'update update update update update'
+                self.q_network['target'].set_weights(self.q_network['online'].get_weights())
+        return loss_online, loss_target
 
     def fit(self, env, num_iterations, max_episode_length=None):
         """Fit your model to the provided environment.
@@ -162,7 +200,7 @@ class DQNAgent(object):
           resets. Can help exploration.
         """
         
-        input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape'][1:]
+        self.input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape'][1:]
         window = self.state_shape[0]
         
         iter_num = 0
@@ -177,7 +215,7 @@ class DQNAgent(object):
             print '##########begin new episode#############'
             while episode_counter < max_episode_length or max_episode_length is None:
                 # get online q value and get action
-                input_state = np.stack([state.reshape(input_shape)])
+                input_state = np.stack([state.reshape(self.input_shape)])
                 q_online = self.q_network['online'].predict(input_state)
                 action = self.policy['train'].select_action(q_online, iter_num)
                 
@@ -204,7 +242,7 @@ class DQNAgent(object):
                 
                 # update networks
                 if self.memory is None:
-                    input_state_next = np.stack([state_next.reshape(input_shape)])
+                    input_state_next = np.stack([state_next.reshape(self.input_shape)])
                     
                     q_target_next = self.q_network['target'].predict(input_state_next)
                     target = np.zeros(q_target_next.shape, dtype=np.float32)
@@ -212,31 +250,16 @@ class DQNAgent(object):
                         target[0, action] = reward
                     else:
                         target[0, action] = reward + self.gamma * np.max(q_target_next)
-                    print self.q_network['online'].train_on_batch(input_state, target)
+                    loss_online = loss_target = self.q_network['online'].train_on_batch(input_state, target)
                     self.q_network['target'].set_weights(self.q_network['online'].get_weights())
                 elif len(self.memory) >= self.batch_size:
-                    mini_batch = random.sample(self.memory, self.batch_size)
-                    input_b = []
-                    input_b_n = []
-                    for st_m, act, rew, st_m_n, done_b in mini_batch:
-                        st = self.preprocessor.process_state_for_network(st_m)
-                        input_b.append(st.reshape(input_shape))
-                        st_n = self.preprocessor.process_state_for_network(st_m_n)
-                        input_b_n.append(st_n.reshape(input_shape))
-                    input_b = np.stack(input_b)
-                    input_b_n = np.stack(input_b_n)
-                    q_target_b_n = self.q_network['target'].predict(input_b_n)
-                    
-                    target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
-                    for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
-                        if done_b:
-                            target_b[idx, act] = rew
-                        else:
-                            target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
-                    curr_value = self.q_network['online'].train_on_batch(input_b, target_b)
-                    if iter_num % self.target_reset_interval == 0:
-                        print 'update update update update update'
-                        self.q_network['target'].set_weights(self.q_network['online'].get_weights())
+                    loss_online, loss_target = self.update_policy(iter_num)
+                else:
+                    loss_online = loss_target = None
+                
+                if iter_num % self.eval_interval == 0:
+                    print '########## evaluation #############'
+                    self.evaluate(env, num_episodes=self.eval_episodes)
                 
                 state_mem = state_mem_next
                 state = state_next
@@ -245,7 +268,7 @@ class DQNAgent(object):
                 if done:
                     break
             episode += 1
-            print curr_value
+            print 'losses:', loss_online, loss_target
             print '{:d} out of {:d} iterations'.format(iter_num, num_iterations)
                     
 
@@ -264,9 +287,8 @@ class DQNAgent(object):
         """
         input_shape = self.q_network['online'].get_config()[0]['config']['batch_input_shape'][1:]
         window = self.state_shape[0]
-        
+        total_reward = 0.0
         for episode in range(num_episodes):
-            print '##########begin new episode#############'
             env.reset()
             state_mem = np.zeros(self.state_shape, dtype=np.uint8)
             state = self.preprocessor.process_state_for_network(state_mem)
@@ -301,4 +323,6 @@ class DQNAgent(object):
                 episode_counter += 1
                 if done:
                     break
-            print 'episode reward: {:f}'.format(cum_reward)
+            print '  episode reward: {:f}'.format(cum_reward)
+            total_reward += cum_reward
+        print 'average episode reward: {:f}'.format(total_reward / num_episodes)

@@ -183,6 +183,14 @@ def main():  # noqa: D103
     parser.add_argument('--read_weight', default=None, type=str,
                         help='Read weight from $read_weight/online_weight.save')
     
+    parser.add_argument('--eval_interval', default=100000, type=int,
+                        help='Evaluation interval')
+    parser.add_argument('--eval_episodes', default=20, type=int,
+                        help='Number of episodes in evaluation')
+    
+    parser.add_argument('--double_net', default=False, type=bool,
+                        help='Invode double Q net')
+    
     args = parser.parse_args()
     args.input_shape = tuple(args.input_shape)
     
@@ -220,31 +228,29 @@ def main():  # noqa: D103
     
     agent = DQNAgent(state_shape, q_network, proc, memory, policy,
                      args.discount, args.target_reset_interval,
-                     args.num_burn_in, args.train_freq, args.batch_size)
+                     args.num_burn_in, args.train_freq, args.batch_size,
+                     args.eval_interval, args.eval_episodes, args.double_net)
     
     agent.compile(opt_adam, mean_huber_loss)
     
-    try:
-        if args.read_weight:
-            weight_read_name = os.path.join(args.read_weight)
-            with open(weight_read_name, 'rb') as save:
-                saved_weights, agent.memory = pickle.load(save)
-            agent.q_network['online'].set_weights(saved_weights)
-            agent.q_network['target'].set_weights(saved_weights)
-            print 'weights & memory read from {:s}'.format(weight_read_name)
-        print '########## training #############'
-        agent.fit(env, args.num_train, args.max_episode_length)
-    except:
-        pass
+    #~ try:
+    if args.read_weight:
+        weight_read_name = os.path.join(args.read_weight)
+        with open(weight_read_name, 'rb') as save:
+            saved_weights, agent.memory = pickle.load(save)
+        agent.q_network['online'].set_weights(saved_weights)
+        agent.q_network['target'].set_weights(saved_weights)
+        print 'weights & memory read from {:s}'.format(weight_read_name)
+    print '########## training #############'
+    agent.fit(env, args.num_train, args.max_episode_length)
+    #~ except:
+        #~ pass
     
     weight_save_name = os.path.join(args.output, 'online_weight.save')
     with open(weight_save_name, 'wb') as save:
         weights = q_network['online'].get_weights()
         pickle.dump((weights, agent.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
     print 'weights & memory written to {:s}'.format(weight_save_name)
-    
-    print '########## evaluation #############'
-    agent.evaluate(env, num_episodes=100)
     
 
     # here is where you should start up a session,
