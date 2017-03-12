@@ -9,7 +9,8 @@ import subprocess
 import numpy as np
 import tensorflow as tf
 from keras.layers import (Activation, Convolution2D, Dense, Flatten, Input,
-                          Permute)
+                          Permute, Lambda, Merge, merge)
+from keras import backend as K
 from keras.initializations import normal, identity
 from keras.models import Model, Sequential
 from keras.optimizers import Adam
@@ -23,38 +24,6 @@ from deeprl_hw2.policy import *
 import gym
 from collections import deque
 import cPickle as pickle
-
-def query_yes_no(question, default="no"):
-    """Ask a yes/no question via raw_input() and return their answer.
-
-    "question" is a string that is presented to the user.
-    "default" is the presumed answer if the user just hits <Enter>.
-        It must be "yes" (the default), "no" or None (meaning
-        an answer is required of the user).
-
-    The "answer" return value is True for "yes" or False for "no".
-    """
-    valid = {"yes": True, "y": True, "ye": True,
-             "no": False, "n": False}
-    if default is None:
-        prompt = " [y/n] "
-    elif default == "yes":
-        prompt = " [Y/n] "
-    elif default == "no":
-        prompt = " [y/N] "
-    else:
-        raise ValueError("invalid default answer: '%s'" % default)
-
-    while True:
-        sys.stdout.write(question + prompt)
-        choice = raw_input().lower()
-        if default is not None and choice == '':
-            return valid[default]
-        elif choice in valid:
-            return valid[choice]
-        else:
-            sys.stdout.write("Please respond with 'yes' or 'no' "
-                             "(or 'y' or 'n').\n")
 
 def create_model(window, input_shape, num_actions,
                  model_name='q_network'):  # noqa: D103
@@ -86,25 +55,56 @@ def create_model(window, input_shape, num_actions,
       The Q-model.
     """
     if model_name == 'linear':
+        model_input_shape = (np.prod(input_shape) * window,)
         model = Sequential()
-        model.add(Dense(num_actions, input_dim=np.prod(input_shape) * window))
+        model.add(Dense(num_actions, input_dim=model_input_shape[0]))
     elif model_name == 'dqn':
+        model_input_shape = tuple([window] + list(input_shape))
         model = Sequential()
-        conv1 = Convolution2D(16, 8, 8, subsample=(4, 4),
+        conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
             init='uniform',
-            border_mode='same', input_shape=[window] + list(input_shape))
+            border_mode='same', input_shape=model_input_shape)
         model.add(conv1)
         model.add(Activation('relu'))
-        conv2 = Convolution2D(32, 4, 4, subsample=(2, 2),
+        conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
             init='uniform',
             border_mode='same')
         model.add(conv2)
         model.add(Activation('relu'))
+        conv3 = Convolution2D(64, 3, 3, subsample=(2, 2),
+            init='uniform',
+            border_mode='same')
+        model.add(conv3)
+        model.add(Activation('relu'))
         model.add(Flatten())
-        model.add(Dense(256, init='uniform'))
+        model.add(Dense(512, init='uniform'))
         model.add(Activation('relu'))
         model.add(Dense(num_actions, init='uniform'))
-    return model
+    elif model_name == 'dueling':
+        model_input_shape = tuple([window] + list(input_shape))
+        inputs = Input(shape=model_input_shape)
+        conv1 = Convolution2D(32, 8, 8, subsample=(4, 4), init='uniform',
+            border_mode='same', activation='relu')(inputs)
+        conv2 = Convolution2D(64, 4, 4, subsample=(2, 2), init='uniform',
+            border_mode='same', activation='relu')(conv1)
+        conv3 = Convolution2D(64, 3, 3, subsample=(1, 1), init='uniform',
+            border_mode='same', activation='relu')(conv2)
+        feature = Flatten()(conv3)
+        value1 = Dense(512, init='uniform')(feature)
+        value2 = Dense(1, init='uniform')(value1)
+        advantage1 = Dense(512, init='uniform')(feature)
+        advantage2 = Dense(num_actions, init='uniform')(advantage1)
+        mean_advantage2 = Lambda(lambda x: K.mean(x, axis=1))(advantage2)
+        ones = K.ones([1, num_actions])
+        exp_mean_advantage2 = Lambda(lambda x: K.dot(K.expand_dims(x, dim=1), -ones))(mean_advantage2)
+        sum_adv = merge([exp_mean_advantage2, advantage2], mode='sum')
+        
+        exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
+        q_value = merge([exp_value2, sum_adv], mode='sum')
+        
+        #~ import pdb; pdb.set_trace()
+        model = Model(input=inputs, output=q_value)
+    return model, model_input_shape
 
 
 def get_output_folder(parent_dir, env_name):
@@ -199,14 +199,14 @@ def main():  # noqa: D103
     
     env = gym.make(args.env)
     
-    num_actions = len(env.get_action_meanings())
+    num_actions = env.action_space.n
     
     opt_adam = Adam(lr=args.learning_rate)
     
-    model_online = create_model(args.num_frame, args.input_shape, num_actions,
-                                model_name=args.model_name)
-    model_target = create_model(args.num_frame, args.input_shape, num_actions,
-                                model_name=args.model_name)
+    model_online, model_input_shape = create_model(args.num_frame, args.input_shape,
+        num_actions, model_name=args.model_name)
+    model_target, model_input_shape = create_model(args.num_frame, args.input_shape,
+        num_actions, model_name=args.model_name)
     
     q_network = {}
     q_network['online'] = model_online
@@ -226,7 +226,8 @@ def main():  # noqa: D103
     policy['evaluation'] = GreedyEpsilonPolicy(0.0)
     state_shape = tuple([args.num_frame] + list(args.input_shape))
     
-    agent = DQNAgent(state_shape, q_network, proc, memory, policy,
+    agent = DQNAgent(state_shape, model_input_shape,
+                     q_network, proc, memory, policy,
                      args.discount, args.target_reset_interval,
                      args.num_burn_in, args.train_freq, args.batch_size,
                      args.eval_interval, args.eval_episodes, args.double_net)
