@@ -1,6 +1,8 @@
 
 import numpy as np
 import random
+import os
+import cPickle as pickle
 
 """Main DQN agent."""
 
@@ -56,7 +58,8 @@ class DQNAgent(object):
                  batch_size,
                  eval_interval,
                  eval_episodes,
-                 double_net):
+                 double_net,
+                 output):
         self.state_shape = state_shape
         self.model_input_shape = model_input_shape
         self.q_network = q_network
@@ -71,6 +74,7 @@ class DQNAgent(object):
         self.eval_interval = eval_interval
         self.eval_episodes = eval_episodes
         self.double_net = double_net
+        self.output = output
 
     def compile(self, optimizer, loss_func):
         """Setup all of the TF graph variables/ops.
@@ -203,6 +207,34 @@ class DQNAgent(object):
         """
         
         window = self.state_shape[0]
+        save_pivots = [int(num_iterations / 3), int(2 * num_iterations / 3), num_iterations]
+        
+        # filling in self.batch_size states
+        if self.memory is not None and len(self.memory) < self.batch_size:
+            print '########## burning in some samples #############'
+            env.reset()
+            noop = 0
+            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            while len(self.memory) < self.batch_size:
+                state_mem_next = []
+                reward = 0.0
+                done = False
+                for _ in range(window):
+                    obs_next, obs_reward, obs_done, info = env.step(noop)
+                    env.render()
+                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
+                    state_mem_next.append(obs_next_mem)
+                    reward += obs_reward
+                    done = done or obs_done
+                state_mem_next = np.stack(state_mem_next)
+                reward = self.preprocessor.process_reward(reward)
+                
+                # store transition into replay memory
+                transition_mem = (state_mem, noop, reward, state_mem_next, done)
+                self.memory.append(transition_mem)
+                if done:
+                    env.reset()
+                    state_mem = np.zeros(self.state_shape, dtype=np.uint8)
         
         iter_num = 0
         episode = 0
@@ -213,7 +245,7 @@ class DQNAgent(object):
             done = False
             
             episode_counter = 0
-            print '##########begin new episode#############'
+            print '########## begin new episode #############'
             while episode_counter < max_episode_length or max_episode_length is None:
                 # get online q value and get action
                 input_state = np.stack([state.reshape(self.model_input_shape)])
@@ -253,10 +285,8 @@ class DQNAgent(object):
                         target[0, action] = reward + self.gamma * np.max(q_target_next)
                     loss_online = loss_target = self.q_network['online'].train_on_batch(input_state, target)
                     self.q_network['target'].set_weights(self.q_network['online'].get_weights())
-                elif len(self.memory) >= self.batch_size:
-                    loss_online, loss_target = self.update_policy(iter_num)
                 else:
-                    loss_online = loss_target = None
+                    loss_online, loss_target = self.update_policy(iter_num)
                 
                 if iter_num % self.eval_interval == 0:
                     print '########## evaluation #############'
@@ -266,6 +296,14 @@ class DQNAgent(object):
                 state = state_next
                 episode_counter += 1
                 iter_num += 1
+                
+                if iter_num in save_pivots:
+                    weight_save_name = os.path.join(self.output, 'online_weight_{:d}.save'.format(iter_num))
+                    with open(weight_save_name, 'wb') as save:
+                        weights = self.q_network['online'].get_weights()
+                        pickle.dump((weights, self.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
+                    print 'weights & memory written to {:s}'.format(weight_save_name)
+                
                 if done:
                     break
             episode += 1

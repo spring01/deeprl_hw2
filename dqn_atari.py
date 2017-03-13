@@ -126,7 +126,6 @@ def get_output_folder(parent_dir, env_name):
     parent_dir/run_dir
       Path to this run's save directory.
     """
-    #~ os.makedirs(parent_dir, exist_ok=True)
     experiment_id = 0
     for folder_name in os.listdir(parent_dir):
         if not os.path.isdir(os.path.join(parent_dir, folder_name)):
@@ -230,26 +229,27 @@ def main():  # noqa: D103
                      q_network, proc, memory, policy,
                      args.discount, args.target_reset_interval,
                      args.num_burn_in, args.train_freq, args.batch_size,
-                     args.eval_interval, args.eval_episodes, args.double_net)
+                     args.eval_interval, args.eval_episodes, args.double_net,
+                     args.output)
     
     agent.compile(opt_adam, mean_huber_loss)
     
-    #~ try:
-    if args.read_weight:
-        weight_read_name = os.path.join(args.read_weight)
-        with open(weight_read_name, 'rb') as save:
-            saved_weights, agent.memory = pickle.load(save)
-        agent.q_network['online'].set_weights(saved_weights)
-        agent.q_network['target'].set_weights(saved_weights)
-        print 'weights & memory read from {:s}'.format(weight_read_name)
-    print '########## training #############'
-    agent.fit(env, args.num_train, args.max_episode_length)
-    #~ except:
-        #~ pass
+    try:
+        if args.read_weight:
+            weight_read_name = os.path.join(args.read_weight)
+            with open(weight_read_name, 'rb') as save:
+                saved_weights, agent.memory = pickle.load(save)
+            agent.q_network['online'].set_weights(saved_weights)
+            agent.q_network['target'].set_weights(saved_weights)
+            print 'weights & memory read from {:s}'.format(weight_read_name)
+        print '########## training #############'
+        agent.fit(env, args.num_train, args.max_episode_length)
+    except:
+        pass
     
     weight_save_name = os.path.join(args.output, 'online_weight.save')
     with open(weight_save_name, 'wb') as save:
-        weights = q_network['online'].get_weights()
+        weights = agent.q_network['online'].get_weights()
         pickle.dump((weights, agent.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
     print 'weights & memory written to {:s}'.format(weight_save_name)
     
@@ -257,6 +257,7 @@ def main():  # noqa: D103
     # here is where you should start up a session,
     # create your DQN agent, create your model, etc.
     # then you can run your fit method.
+
 
 if __name__ == '__main__':
     main()
