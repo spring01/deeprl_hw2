@@ -132,7 +132,6 @@ class DQNAgent(object):
         """
         pass
         
-
     def update_policy(self, iter_num):
         """Update your policy.
 
@@ -181,7 +180,7 @@ class DQNAgent(object):
                 print 'update update update update update'
                 self.q_network['target'].set_weights(self.q_network['online'].get_weights())
         return loss_online, loss_target
-
+    
     def fit(self, env, num_iterations, max_episode_length=None):
         """Fit your model to the provided environment.
 
@@ -238,11 +237,12 @@ class DQNAgent(object):
                 if done:
                     env.reset()
                     state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+                state_mem = state_mem_next
         
         iter_num = 0
         episode = 0
         
-        while iter_num < num_iterations:
+        while iter_num <= num_iterations:
             env.reset()
             state_mem = np.zeros(self.state_shape, dtype=np.uint8)
             state = self.preprocessor.process_state_for_network(state_mem)
@@ -282,18 +282,17 @@ class DQNAgent(object):
                 if self.memory is None:
                     input_state_next = np.stack([state_next.reshape(self.model_input_shape)])
                     
-                    q_target_next = self.q_network['target'].predict(input_state_next)
+                    q_target_next = self.q_network['online'].predict(input_state_next)
                     target = np.zeros(q_target_next.shape, dtype=np.float32)
                     if done:
                         target[0, action] = reward
                     else:
                         target[0, action] = reward + self.gamma * np.max(q_target_next)
                     loss_online = loss_target = self.q_network['online'].train_on_batch(input_state, target)
-                    self.q_network['target'].set_weights(self.q_network['online'].get_weights())
                 else:
                     loss_online, loss_target = self.update_policy(iter_num)
                 
-                if iter_num % self.eval_interval == 0:
+                if not (iter_num % self.eval_interval):
                     print '########## evaluation #############'
                     self.evaluate(env, num_episodes=self.eval_episodes)
                 

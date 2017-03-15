@@ -47,7 +47,7 @@ class AtariPreprocessor(Preprocessor):
 
     def __init__(self, new_size):
         self.new_size = new_size
-
+    
     def process_state_for_memory(self, state):
         """Scale, convert to greyscale and store as uint8.
 
@@ -58,13 +58,15 @@ class AtariPreprocessor(Preprocessor):
         We recommend using the Python Image Library (PIL) to do the
         image conversions.
         """
-        img = Image.fromarray(state).resize(self.new_size).convert('L')
+        img = Image.fromarray(state)
+        img = img.resize(self.new_size)
+        img = img.convert('L')
         return np.asarray(img)
 
     def process_state_for_network(self, state_mem):
         """Convert list of uint8 arrays into a stacked state
         """
-        return np.stack([np.asarray(Image.fromarray(st).convert('F')) for st in state_mem])
+        return state_mem.astype(np.float32) / 255
 
     def process_batch(self, samples):
         """The batches from replay memory will be uint8, convert to float32.
