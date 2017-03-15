@@ -102,7 +102,6 @@ def create_model(window, input_shape, num_actions,
         exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
         q_value = merge([exp_value2, sum_adv], mode='sum')
         
-        #~ import pdb; pdb.set_trace()
         model = Model(input=inputs, output=q_value)
     return model, model_input_shape
 
@@ -175,26 +174,28 @@ def main():  # noqa: D103
     parser.add_argument('--num_train', default=5000000, type=int,
                         help='Number of training sampled interactions with the environment')
     parser.add_argument('--max_episode_length', default=None, type=int,
-                        help='Number of training sampled interactions with the environment')
+                        help='Maximum length of an episode')
     
     parser.add_argument('--model_name', default='linear', type=str,
                         help='Model name')
     parser.add_argument('--read_weight', default=None, type=str,
                         help='Read weight from $read_weight/online_weight.save')
     
-    parser.add_argument('--eval_interval', default=100000, type=int,
+    parser.add_argument('--eval_interval', default=10000, type=int,
                         help='Evaluation interval')
     parser.add_argument('--eval_episodes', default=20, type=int,
                         help='Number of episodes in evaluation')
     
     parser.add_argument('--double_net', default=False, type=bool,
-                        help='Invode double Q net')
+                        help='Invoke double Q net')
+    
+    parser.add_argument('--do_render', default=False, type=bool,
+                        help='Do rendering or not')
     
     args = parser.parse_args()
     args.input_shape = tuple(args.input_shape)
     
     args.output = get_output_folder(args.output, args.env)
-    
     
     env = gym.make(args.env)
     
@@ -230,7 +231,7 @@ def main():  # noqa: D103
                      args.discount, args.target_reset_interval,
                      args.num_burn_in, args.train_freq, args.batch_size,
                      args.eval_interval, args.eval_episodes, args.double_net,
-                     args.output)
+                     args.output, args.do_render)
     
     agent.compile(opt_adam, mean_huber_loss)
     

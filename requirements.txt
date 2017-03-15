@@ -1,7 +1,8 @@
 attrs
 gym
+gym[atari]
 h5py
-keras
+keras==1.2.2
 matplotlib
 numpy
 pillow

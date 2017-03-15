@@ -59,7 +59,8 @@ class DQNAgent(object):
                  eval_interval,
                  eval_episodes,
                  double_net,
-                 output):
+                 output,
+                 do_render):
         self.state_shape = state_shape
         self.model_input_shape = model_input_shape
         self.q_network = q_network
@@ -75,6 +76,7 @@ class DQNAgent(object):
         self.eval_episodes = eval_episodes
         self.double_net = double_net
         self.output = output
+        self.do_render = do_render
 
     def compile(self, optimizer, loss_func):
         """Setup all of the TF graph variables/ops.
@@ -221,7 +223,8 @@ class DQNAgent(object):
                 done = False
                 for _ in range(window):
                     obs_next, obs_reward, obs_done, info = env.step(noop)
-                    env.render()
+                    if self.do_render:
+                        env.render()
                     obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
                     state_mem_next.append(obs_next_mem)
                     reward += obs_reward
@@ -238,6 +241,7 @@ class DQNAgent(object):
         
         iter_num = 0
         episode = 0
+        
         while iter_num < num_iterations:
             env.reset()
             state_mem = np.zeros(self.state_shape, dtype=np.uint8)
@@ -258,7 +262,8 @@ class DQNAgent(object):
                 done = False
                 for _ in range(window):
                     obs_next, obs_reward, obs_done, info = env.step(action)
-                    env.render()
+                    if self.do_render:
+                        env.render()
                     obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
                     state_mem_next.append(obs_next_mem)
                     reward += obs_reward
@@ -346,7 +351,8 @@ class DQNAgent(object):
                 done = False
                 for _ in range(window):
                     obs_next, obs_reward, obs_done, info = env.step(action)
-                    env.render()
+                    if self.do_render:
+                        env.render()
                     obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
                     state_mem_next.append(obs_next_mem)
                     reward += obs_reward
