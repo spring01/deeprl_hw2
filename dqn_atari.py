@@ -62,29 +62,38 @@ def create_model(window, input_shape, num_actions,
     elif model_name == 'dqn':
         model_input_shape = tuple([window] + list(input_shape))
         model = Sequential()
-        model.add(Convolution2D(32, 8, 8, subsample=(4, 4),
+        model.add(Convolution2D(16, 8, 8, subsample=(4, 4),
             border_mode='same', activation='relu', init='uniform',
             input_shape=model_input_shape))
-        model.add(Convolution2D(64, 4, 4, subsample=(2, 2),
-            border_mode='same', activation='relu', init='uniform'))
-        model.add(Convolution2D(64, 3, 3, subsample=(1, 1),
+        model.add(Convolution2D(32, 4, 4, subsample=(2, 2),
             border_mode='same', activation='relu', init='uniform'))
         model.add(Flatten())
-        model.add(Dense(512, activation='relu', init='uniform'))
+        model.add(Dense(256, activation='relu', init='uniform'))
         model.add(Dense(num_actions, init='uniform'))
+        
+        #~ model_input_shape = tuple([window] + list(input_shape))
+        #~ model = Sequential()
+        #~ model.add(Convolution2D(32, 8, 8, subsample=(4, 4),
+            #~ border_mode='same', activation='relu', init='uniform',
+            #~ input_shape=model_input_shape))
+        #~ model.add(Convolution2D(64, 4, 4, subsample=(2, 2),
+            #~ border_mode='same', activation='relu', init='uniform'))
+        #~ model.add(Convolution2D(64, 3, 3, subsample=(1, 1),
+            #~ border_mode='same', activation='relu', init='uniform'))
+        #~ model.add(Flatten())
+        #~ model.add(Dense(512, activation='relu', init='uniform'))
+        #~ model.add(Dense(num_actions, init='uniform'))
     elif model_name == 'dueling':
         model_input_shape = tuple([window] + list(input_shape))
         inputs = Input(shape=model_input_shape)
-        conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
+        conv1 = Convolution2D(16, 8, 8, subsample=(4, 4),
             border_mode='same', activation='relu', init='uniform')(inputs)
-        conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
+        conv2 = Convolution2D(32, 4, 4, subsample=(2, 2),
             border_mode='same', activation='relu', init='uniform')(conv1)
-        conv3 = Convolution2D(64, 3, 3, subsample=(1, 1),
-            border_mode='same', activation='relu', init='uniform')(conv2)
-        feature = Flatten()(conv3)
-        value1 = Dense(512, activation='relu', init='uniform')(feature)
+        feature = Flatten()(conv2)
+        value1 = Dense(256, activation='relu', init='uniform')(feature)
         value2 = Dense(1)(value1)
-        advantage1 = Dense(512, activation='relu', init='uniform')(feature)
+        advantage1 = Dense(256, activation='relu', init='uniform')(feature)
         advantage2 = Dense(num_actions, init='uniform')(advantage1)
         mean_advantage2 = Lambda(lambda x: K.mean(x, axis=1))(advantage2)
         ones = K.ones([1, num_actions])
@@ -93,6 +102,27 @@ def create_model(window, input_shape, num_actions,
         exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
         q_value = merge([exp_value2, sum_adv], mode='sum')
         model = Model(input=inputs, output=q_value)
+        
+        #~ model_input_shape = tuple([window] + list(input_shape))
+        #~ inputs = Input(shape=model_input_shape)
+        #~ conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
+            #~ border_mode='same', activation='relu', init='uniform')(inputs)
+        #~ conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
+            #~ border_mode='same', activation='relu', init='uniform')(conv1)
+        #~ conv3 = Convolution2D(64, 3, 3, subsample=(1, 1),
+            #~ border_mode='same', activation='relu', init='uniform')(conv2)
+        #~ feature = Flatten()(conv3)
+        #~ value1 = Dense(512, activation='relu', init='uniform')(feature)
+        #~ value2 = Dense(1)(value1)
+        #~ advantage1 = Dense(512, activation='relu', init='uniform')(feature)
+        #~ advantage2 = Dense(num_actions, init='uniform')(advantage1)
+        #~ mean_advantage2 = Lambda(lambda x: K.mean(x, axis=1))(advantage2)
+        #~ ones = K.ones([1, num_actions])
+        #~ exp_mean_advantage2 = Lambda(lambda x: K.dot(K.expand_dims(x, dim=1), -ones))(mean_advantage2)
+        #~ sum_adv = merge([exp_mean_advantage2, advantage2], mode='sum')
+        #~ exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
+        #~ q_value = merge([exp_value2, sum_adv], mode='sum')
+        #~ model = Model(input=inputs, output=q_value)
     return model, model_input_shape
 
 
@@ -208,10 +238,10 @@ def main():  # noqa: D103
     if args.replay_buffer_size == 0:
         memory = None
     else:
-        memory = deque(maxlen=(args.replay_buffer_size / args.num_frame))
+        memory = deque(maxlen=int(args.replay_buffer_size / args.num_frame))
     
     policy = {}
-    policy['train'] = LinearDecayGreedyEpsilonPolicy(0.5,
+    policy['train'] = LinearDecayGreedyEpsilonPolicy(args.explore_prob + 0.5,
                                                      args.explore_prob,
                                                      args.num_train)
     policy['evaluation'] = GreedyEpsilonPolicy(args.explore_prob)
@@ -228,7 +258,7 @@ def main():  # noqa: D103
     np.random.seed(15213)
     tf.set_random_seed(15213)
     
-    agent.compile(opt_adam, 'mse')
+    agent.compile(opt_adam, mean_huber_loss)
     
     # set seed
     np.random.seed(15213)

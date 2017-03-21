@@ -238,12 +238,12 @@ class DQNAgent(object):
                 reward = self.preprocessor.process_reward(reward)
                 
                 # store transition into replay memory
-                transition_mem = (state_mem.copy(), noop, reward, state_mem_next.copy(), done)
+                transition_mem = (state_mem, noop, reward, state_mem_next, done)
                 self.memory.append(transition_mem)
                 if done:
                     env.reset()
                     state_mem = np.zeros(self.state_shape, dtype=np.uint8)
-                state_mem = state_mem_next.copy()
+                state_mem = state_mem_next
         
         iter_num = 0
         episode = 0
@@ -279,7 +279,7 @@ class DQNAgent(object):
                 reward = self.preprocessor.process_reward(reward)
                 
                 # store transition into replay memory
-                transition_mem = (state_mem.copy(), action, reward, state_mem_next.copy(), done)
+                transition_mem = (state_mem, action, reward, state_mem_next, done)
                 if self.memory is not None: # self.memory should be a deque with a max length
                     self.memory.append(transition_mem)
                 
@@ -303,7 +303,7 @@ class DQNAgent(object):
                     print '########## evaluation #############'
                     self.evaluate(env, num_episodes=self.eval_episodes)
                 
-                state_mem = state_mem_next.copy()
+                state_mem = state_mem_next
                 episode_counter += 1
                 iter_num += 1
                 
@@ -363,9 +363,9 @@ class DQNAgent(object):
                     done = done or obs_done
                 state_mem_next = np.stack(state_mem_next)
                 
-                reward = self.preprocessor.process_reward(reward)
+                #~ reward = self.preprocessor.process_reward(reward)
                 cum_reward += reward
-                state_mem = state_mem_next.copy()
+                state_mem = state_mem_next
                 episode_counter += 1
                 if done:
                     break
