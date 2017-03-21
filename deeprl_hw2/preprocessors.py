@@ -66,7 +66,7 @@ class AtariPreprocessor(Preprocessor):
     def process_state_for_network(self, state_mem):
         """Convert list of uint8 arrays into a stacked state
         """
-        return state_mem.astype(np.float32) / 255
+        return state_mem.astype(np.float32)
 
     def process_batch(self, samples):
         """The batches from replay memory will be uint8, convert to float32.

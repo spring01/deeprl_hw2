@@ -157,9 +157,18 @@ class DQNAgent(object):
             input_b_n.append(st_n.reshape(self.model_input_shape))
         input_b = np.stack(input_b)
         input_b_n = np.stack(input_b_n)
-        q_target_b_n = self.q_network['target'].predict(input_b_n)
         
-        target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
+        if self.double_net and np.random.rand() < 0.5:
+            use_as_online = 'target'
+            use_as_target = 'online'
+        else:
+            use_as_online = 'online'
+            use_as_target = 'target'
+        
+        q_target_b_n = self.q_network[use_as_target].predict(input_b_n)
+        
+        #~ target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
+        target_b = self.q_network[use_as_online].predict(input_b)
         for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
             if done_b:
                 target_b[idx, act] = rew
@@ -167,18 +176,14 @@ class DQNAgent(object):
                 target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
         
         if self.double_net:
-            if np.random.rand() < 0.5:
-                loss_online = self.q_network['online'].train_on_batch(input_b, target_b)
-                loss_target = self.q_network['target'].evaluate(input_b, target_b, verbose=0)
-            else:
-                loss_target = self.q_network['target'].train_on_batch(input_b, target_b)
-                loss_online = self.q_network['online'].evaluate(input_b, target_b, verbose=0)
+            loss_online = self.q_network[use_as_online].train_on_batch(input_b, target_b)
+            loss_target = self.q_network[use_as_target].evaluate(input_b, target_b, verbose=0)
         else:
             loss_online = self.q_network['online'].train_on_batch(input_b, target_b)
             loss_target = self.q_network['target'].evaluate(input_b, target_b, verbose=0)
-            if iter_num % self.target_reset_interval == 0:
-                print 'update update update update update'
-                self.q_network['target'].set_weights(self.q_network['online'].get_weights())
+        if iter_num % self.target_reset_interval == 0:
+            print 'update update update update update'
+            self.q_network['target'].set_weights(self.q_network['online'].get_weights())
         return loss_online, loss_target
     
     def fit(self, env, num_iterations, max_episode_length=None):
@@ -209,6 +214,7 @@ class DQNAgent(object):
         
         window = self.state_shape[0]
         save_pivots = [int(num_iterations / 3), int(2 * num_iterations / 3), num_iterations]
+        self.q_network['target'].set_weights(self.q_network['online'].get_weights())
         
         # filling in self.batch_size states
         if self.memory is not None and len(self.memory) < self.batch_size:
@@ -232,12 +238,12 @@ class DQNAgent(object):
                 reward = self.preprocessor.process_reward(reward)
                 
                 # store transition into replay memory
-                transition_mem = (state_mem, noop, reward, state_mem_next, done)
+                transition_mem = (state_mem.copy(), noop, reward, state_mem_next.copy(), done)
                 self.memory.append(transition_mem)
                 if done:
                     env.reset()
                     state_mem = np.zeros(self.state_shape, dtype=np.uint8)
-                state_mem = state_mem_next
+                state_mem = state_mem_next.copy()
         
         iter_num = 0
         episode = 0
@@ -245,13 +251,12 @@ class DQNAgent(object):
         while iter_num <= num_iterations:
             env.reset()
             state_mem = np.zeros(self.state_shape, dtype=np.uint8)
-            state = self.preprocessor.process_state_for_network(state_mem)
-            done = False
             
             episode_counter = 0
             print '########## begin new episode #############'
             while episode_counter < max_episode_length or max_episode_length is None:
                 # get online q value and get action
+                state = self.preprocessor.process_state_for_network(state_mem)
                 input_state = np.stack([state.reshape(self.model_input_shape)])
                 q_online = self.q_network['online'].predict(input_state)
                 action = self.policy['train'].select_action(q_online, iter_num)
@@ -270,20 +275,22 @@ class DQNAgent(object):
                     done = done or obs_done
                 state_mem_next = np.stack(state_mem_next)
                 
-                state_next = self.preprocessor.process_state_for_network(state_mem_next)
+                
                 reward = self.preprocessor.process_reward(reward)
                 
                 # store transition into replay memory
-                transition_mem = (state_mem, action, reward, state_mem_next, done)
+                transition_mem = (state_mem.copy(), action, reward, state_mem_next.copy(), done)
                 if self.memory is not None: # self.memory should be a deque with a max length
                     self.memory.append(transition_mem)
                 
                 # update networks
                 if self.memory is None:
+                    state_next = self.preprocessor.process_state_for_network(state_mem_next)
                     input_state_next = np.stack([state_next.reshape(self.model_input_shape)])
                     
                     q_target_next = self.q_network['online'].predict(input_state_next)
-                    target = np.zeros(q_target_next.shape, dtype=np.float32)
+                    #~ target = np.zeros(q_target_next.shape, dtype=np.float32)
+                    target = self.q_network['online'].predict(input_state)
                     if done:
                         target[0, action] = reward
                     else:
@@ -296,8 +303,7 @@ class DQNAgent(object):
                     print '########## evaluation #############'
                     self.evaluate(env, num_episodes=self.eval_episodes)
                 
-                state_mem = state_mem_next
-                state = state_next
+                state_mem = state_mem_next.copy()
                 episode_counter += 1
                 iter_num += 1
                 
@@ -333,12 +339,11 @@ class DQNAgent(object):
         for episode in range(num_episodes):
             env.reset()
             state_mem = np.zeros(self.state_shape, dtype=np.uint8)
-            state = self.preprocessor.process_state_for_network(state_mem)
             done = False
             episode_counter = 0
             cum_reward = 0.0
             while episode_counter < max_episode_length or max_episode_length is None:
-                
+                state = self.preprocessor.process_state_for_network(state_mem)
                 # get online q value and get action
                 input_state = np.stack([state.reshape(self.model_input_shape)])
                 q_online = self.q_network['online'].predict(input_state)
@@ -358,11 +363,9 @@ class DQNAgent(object):
                     done = done or obs_done
                 state_mem_next = np.stack(state_mem_next)
                 
-                state_next = self.preprocessor.process_state_for_network(state_mem_next)
                 reward = self.preprocessor.process_reward(reward)
                 cum_reward += reward
-                state_mem = state_mem_next
-                state = state_next
+                state_mem = state_mem_next.copy()
                 episode_counter += 1
                 if done:
                     break
