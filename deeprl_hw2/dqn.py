@@ -175,12 +175,8 @@ class DQNAgent(object):
             else:
                 target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
         
-        if self.double_net:
-            loss_online = self.q_network[use_as_online].train_on_batch(input_b, target_b)
-            loss_target = self.q_network[use_as_target].evaluate(input_b, target_b, verbose=0)
-        else:
-            loss_online = self.q_network['online'].train_on_batch(input_b, target_b)
-            loss_target = self.q_network['target'].evaluate(input_b, target_b, verbose=0)
+        loss_online = self.q_network[use_as_online].train_on_batch(input_b, target_b)
+        loss_target = self.q_network[use_as_target].evaluate(input_b, target_b, verbose=0)
         if iter_num % self.target_reset_interval == 0:
             print 'update update update update update'
             self.q_network['target'].set_weights(self.q_network['online'].get_weights())
