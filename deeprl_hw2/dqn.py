@@ -368,3 +368,30 @@ class DQNAgent(object):
             print '  episode reward: {:f}'.format(cum_reward)
             total_reward += cum_reward
         print 'average episode reward: {:f}'.format(total_reward / num_episodes)
+
+    def make_video(self, env):
+        """"""
+        window = self.state_shape[0]
+        env.reset()
+        state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+        done = False
+        while not done:
+            state = self.preprocessor.process_state_for_network(state_mem)
+            # get online q value and get action
+            input_state = np.stack([state.reshape(self.model_input_shape)])
+            q_online = self.q_network['online'].predict(input_state)
+            action = self.policy['evaluation'].select_action(q_online)
+
+            # do action to get the next state
+            state_mem_next = []
+            done = False
+            for _ in range(window):
+                obs_next, obs_reward, obs_done, info = env.step(action)
+                if self.do_render:
+                    env.render()
+                obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
+                state_mem_next.append(obs_next_mem)
+                done = done or obs_done
+            state_mem_next = np.stack(state_mem_next)
+
+            state_mem = state_mem_next

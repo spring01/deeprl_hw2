@@ -22,8 +22,10 @@ from deeprl_hw2.preprocessors import AtariPreprocessor
 from deeprl_hw2.policy import *
 
 import gym
+from gym import wrappers
 from collections import deque
 import cPickle as pickle
+
 
 def create_model(window, input_shape, num_actions,
                  model_name='q_network'):  # noqa: D103
@@ -211,6 +213,7 @@ def main():  # noqa: D103
     
     parser.add_argument('--do_render', default=False, type=bool,
                         help='Do rendering or not')
+    parser.add_argument('--make_video', default=None, type=str, help='Directory to write video to')
     
     
     args = parser.parse_args()
@@ -219,7 +222,9 @@ def main():  # noqa: D103
     args.output = get_output_folder(args.output, args.env)
     
     env = gym.make(args.env)
-    
+    if args.make_video is not None:
+        env = wrappers.Monitor(env, args.make_video, force=True)
+
     num_actions = env.action_space.n
     
     opt_adam = Adam(lr=args.learning_rate)
@@ -273,7 +278,11 @@ def main():  # noqa: D103
             agent.q_network['target'].set_weights(saved_weights)
             print 'weights & memory read from {:s}'.format(weight_read_name)
         print '########## training #############'
-        agent.fit(env, args.num_train, args.max_episode_length)
+        if args.make_video is not None:
+            agent.make_video(env)
+            exit()
+        else:
+            agent.fit(env, args.num_train, args.max_episode_length)
     except:
         pass
     
