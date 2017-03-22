@@ -175,12 +175,10 @@ class DQNAgent(object):
             else:
                 target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
         
-        loss_online = self.q_network[use_as_online].train_on_batch(input_b, target_b)
-        loss_target = self.q_network[use_as_target].evaluate(input_b, target_b, verbose=0)
+        self.q_network[use_as_online].train_on_batch(input_b, target_b)
         if iter_num % self.target_reset_interval == 0:
             print 'update update update update update'
             self.q_network['target'].set_weights(self.q_network['online'].get_weights())
-        return loss_online, loss_target
     
     def fit(self, env, num_iterations, max_episode_length=None):
         """Fit your model to the provided environment.
@@ -236,7 +234,6 @@ class DQNAgent(object):
                 state_mem = state_mem_next
         
         iter_num = 0
-        episode = 0
         
         while iter_num <= num_iterations:
             env.reset()
@@ -273,9 +270,9 @@ class DQNAgent(object):
                         target[0, action] = reward
                     else:
                         target[0, action] = reward + self.gamma * np.max(q_target_next)
-                    loss_online = loss_target = self.q_network['online'].train_on_batch(input_state, target)
+                    self.q_network['online'].train_on_batch(input_state, target)
                 else:
-                    loss_online, loss_target = self.update_policy(iter_num)
+                    self.update_policy(iter_num)
                 
                 if not (iter_num % self.eval_interval):
                     print '########## evaluation #############'
@@ -294,8 +291,9 @@ class DQNAgent(object):
                 
                 if done:
                     break
-            episode += 1
-            print 'losses:', loss_online, loss_target
+                
+                if not iter_num % 1000 and self.memory is not None:
+                    self.print_loss()
             print '{:d} out of {:d} iterations'.format(iter_num, num_iterations)
                     
 
@@ -352,6 +350,32 @@ class DQNAgent(object):
             done = done or obs_done
         state_mem_next = np.stack(state_mem_next)
         return state_mem_next, reward, done
+    
+    def print_loss(self):
+        mini_batch = random.sample(self.memory, self.batch_size)
+        input_b = []
+        input_b_n = []
+        for st_m, act, rew, st_m_n, done_b in mini_batch:
+            st = self.preprocessor.process_state_for_network(st_m)
+            input_b.append(st.reshape(self.model_input_shape))
+            st_n = self.preprocessor.process_state_for_network(st_m_n)
+            input_b_n.append(st_n.reshape(self.model_input_shape))
+        input_b = np.stack(input_b)
+        input_b_n = np.stack(input_b_n)
+        
+        q_target_b_n = self.q_network['target'].predict(input_b_n)
+        
+        #~ target_b = np.zeros(q_target_b_n.shape, dtype=np.float32)
+        target_b = self.q_network['online'].predict(input_b)
+        for idx, (st_m, act, rew, _, done_b) in enumerate(mini_batch):
+            if done_b:
+                target_b[idx, act] = rew
+            else:
+                target_b[idx, act] = rew + self.gamma * np.max(q_target_b_n[idx])
+        
+        loss_online = self.q_network['online'].evaluate(input_b, target_b, verbose=0)
+        loss_target = self.q_network['target'].evaluate(input_b, target_b, verbose=0)
+        print 'losses:', loss_online, loss_target
 
     def make_video(self, env):
         """"""
