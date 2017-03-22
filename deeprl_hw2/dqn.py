@@ -217,28 +217,22 @@ class DQNAgent(object):
             print '########## burning in some samples #############'
             env.reset()
             noop = 0
-            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            #~ state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            
+            state_mem, _, _ = self.get_state(env, window, noop)
+            
             while len(self.memory) < self.batch_size:
-                state_mem_next = []
-                reward = 0.0
-                done = False
-                for _ in range(window):
-                    obs_next, obs_reward, obs_done, info = env.step(noop)
-                    if self.do_render:
-                        env.render()
-                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
-                    state_mem_next.append(obs_next_mem)
-                    reward += obs_reward
-                    done = done or obs_done
-                state_mem_next = np.stack(state_mem_next)
-                reward = self.preprocessor.process_reward(reward)
+                state_mem_next, reward, done = self.get_state(env, window, noop)
                 
                 # store transition into replay memory
                 transition_mem = (state_mem, noop, reward, state_mem_next, done)
-                self.memory.append(transition_mem)
+                if np.sum(state_mem) != 0.0:
+                    self.memory.append(transition_mem)
                 if done:
                     env.reset()
-                    state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+                    #~ state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+                    state_mem_next, reward, done = self.get_state(env, window, noop)
+                    
                 state_mem = state_mem_next
         
         iter_num = 0
@@ -246,7 +240,8 @@ class DQNAgent(object):
         
         while iter_num <= num_iterations:
             env.reset()
-            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            #~ state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            state_mem, _, _ = self.get_state(env, window, 0)
             
             episode_counter = 0
             print '########## begin new episode #############'
@@ -258,20 +253,7 @@ class DQNAgent(object):
                 action = self.policy['train'].select_action(q_online, iter_num)
                 
                 # do action to get the next state
-                state_mem_next = []
-                reward = 0.0
-                done = False
-                for _ in range(window):
-                    obs_next, obs_reward, obs_done, info = env.step(action)
-                    if self.do_render:
-                        env.render()
-                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
-                    state_mem_next.append(obs_next_mem)
-                    reward += obs_reward
-                    done = done or obs_done
-                state_mem_next = np.stack(state_mem_next)
-                
-                
+                state_mem_next, reward, done = self.get_state(env, window, action)
                 reward = self.preprocessor.process_reward(reward)
                 
                 # store transition into replay memory
@@ -334,8 +316,7 @@ class DQNAgent(object):
         total_reward = 0.0
         for episode in range(num_episodes):
             env.reset()
-            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
-            done = False
+            state_mem, _, _ = self.get_state(env, window, 0)
             episode_counter = 0
             cum_reward = 0.0
             while episode_counter < max_episode_length or max_episode_length is None:
@@ -346,19 +327,7 @@ class DQNAgent(object):
                 action = self.policy['evaluation'].select_action(q_online)
                 
                 # do action to get the next state
-                state_mem_next = []
-                reward = 0.0
-                done = False
-                for _ in range(window):
-                    obs_next, obs_reward, obs_done, info = env.step(action)
-                    if self.do_render:
-                        env.render()
-                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
-                    state_mem_next.append(obs_next_mem)
-                    reward += obs_reward
-                    done = done or obs_done
-                state_mem_next = np.stack(state_mem_next)
-                
+                state_mem_next, reward, done = self.get_state(env, window, action)
                 #~ reward = self.preprocessor.process_reward(reward)
                 cum_reward += reward
                 state_mem = state_mem_next
@@ -368,6 +337,21 @@ class DQNAgent(object):
             print '  episode reward: {:f}'.format(cum_reward)
             total_reward += cum_reward
         print 'average episode reward: {:f}'.format(total_reward / num_episodes)
+    
+    def get_state(self, env, window, action):
+        state_mem_next = []
+        reward = 0.0
+        done = False
+        for _ in range(window):
+            obs_next, obs_reward, obs_done, info = env.step(action)
+            if self.do_render:
+                env.render()
+            obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
+            state_mem_next.append(obs_next_mem)
+            reward += obs_reward
+            done = done or obs_done
+        state_mem_next = np.stack(state_mem_next)
+        return state_mem_next, reward, done
 
     def make_video(self, env):
         """"""

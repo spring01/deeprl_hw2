@@ -5,7 +5,6 @@ implementations and some unimplemented classes that should be useful
 in your code.
 """
 import numpy as np
-import attr
 
 
 class Policy(object):
