@@ -207,7 +207,7 @@ class DQNAgent(object):
         """
         
         window = self.state_shape[0]
-        save_pivots = [int(num_iterations / 3), int(2 * num_iterations / 3), num_iterations]
+        save_pivots = range(100000, num_iterations, 100000)
         self.q_network['target'].set_weights(self.q_network['online'].get_weights())
         
         # filling in self.batch_size states
