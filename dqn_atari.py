@@ -62,61 +62,40 @@ def create_model(window, input_shape, num_actions,
         model.add(Dense(num_actions, init='uniform',
             input_dim=model_input_shape[0]))
     elif model_name == 'dqn':
-        model_input_shape = tuple([window] + list(input_shape))
-        model = Sequential()
-        model.add(Convolution2D(16, 8, 8, subsample=(4, 4),
-            border_mode='same', activation='relu', init='uniform',
-            input_shape=model_input_shape))
-        model.add(Convolution2D(32, 4, 4, subsample=(2, 2),
-            border_mode='same', activation='relu', init='uniform'))
-        model.add(Flatten())
-        model.add(Dense(256, activation='relu', init='uniform'))
-        model.add(Dense(num_actions, init='uniform'))
-        
         #~ model_input_shape = tuple([window] + list(input_shape))
         #~ model = Sequential()
-        #~ model.add(Convolution2D(32, 8, 8, subsample=(4, 4),
+        #~ model.add(Convolution2D(16, 8, 8, subsample=(4, 4),
             #~ border_mode='same', activation='relu', init='uniform',
             #~ input_shape=model_input_shape))
-        #~ model.add(Convolution2D(64, 4, 4, subsample=(2, 2),
-            #~ border_mode='same', activation='relu', init='uniform'))
-        #~ model.add(Convolution2D(64, 3, 3, subsample=(1, 1),
+        #~ model.add(Convolution2D(32, 4, 4, subsample=(2, 2),
             #~ border_mode='same', activation='relu', init='uniform'))
         #~ model.add(Flatten())
-        #~ model.add(Dense(512, activation='relu', init='uniform'))
+        #~ model.add(Dense(256, activation='relu', init='uniform'))
         #~ model.add(Dense(num_actions, init='uniform'))
-    elif model_name == 'dueling':
-        model_input_shape = tuple([window] + list(input_shape))
-        inputs = Input(shape=model_input_shape)
-        conv1 = Convolution2D(16, 8, 8, subsample=(4, 4),
-            border_mode='same', activation='relu', init='uniform')(inputs)
-        conv2 = Convolution2D(32, 4, 4, subsample=(2, 2),
-            border_mode='same', activation='relu', init='uniform')(conv1)
-        feature = Flatten()(conv2)
-        value1 = Dense(256, activation='relu', init='uniform')(feature)
-        value2 = Dense(1)(value1)
-        advantage1 = Dense(256, activation='relu', init='uniform')(feature)
-        advantage2 = Dense(num_actions, init='uniform')(advantage1)
-        mean_advantage2 = Lambda(lambda x: K.mean(x, axis=1))(advantage2)
-        ones = K.ones([1, num_actions])
-        exp_mean_advantage2 = Lambda(lambda x: K.dot(K.expand_dims(x, dim=1), -ones))(mean_advantage2)
-        sum_adv = merge([exp_mean_advantage2, advantage2], mode='sum')
-        exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
-        q_value = merge([exp_value2, sum_adv], mode='sum')
-        model = Model(input=inputs, output=q_value)
         
+        model_input_shape = tuple([window] + list(input_shape))
+        model = Sequential()
+        model.add(Convolution2D(32, 8, 8, subsample=(4, 4),
+            border_mode='same', activation='relu', init='uniform',
+            input_shape=model_input_shape))
+        model.add(Convolution2D(64, 4, 4, subsample=(2, 2),
+            border_mode='same', activation='relu', init='uniform'))
+        model.add(Convolution2D(64, 3, 3, subsample=(1, 1),
+            border_mode='same', activation='relu', init='uniform'))
+        model.add(Flatten())
+        model.add(Dense(512, activation='relu', init='uniform'))
+        model.add(Dense(num_actions, init='uniform'))
+    elif model_name == 'dueling':
         #~ model_input_shape = tuple([window] + list(input_shape))
         #~ inputs = Input(shape=model_input_shape)
-        #~ conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
+        #~ conv1 = Convolution2D(16, 8, 8, subsample=(4, 4),
             #~ border_mode='same', activation='relu', init='uniform')(inputs)
-        #~ conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
+        #~ conv2 = Convolution2D(32, 4, 4, subsample=(2, 2),
             #~ border_mode='same', activation='relu', init='uniform')(conv1)
-        #~ conv3 = Convolution2D(64, 3, 3, subsample=(1, 1),
-            #~ border_mode='same', activation='relu', init='uniform')(conv2)
-        #~ feature = Flatten()(conv3)
-        #~ value1 = Dense(512, activation='relu', init='uniform')(feature)
+        #~ feature = Flatten()(conv2)
+        #~ value1 = Dense(256, activation='relu', init='uniform')(feature)
         #~ value2 = Dense(1)(value1)
-        #~ advantage1 = Dense(512, activation='relu', init='uniform')(feature)
+        #~ advantage1 = Dense(256, activation='relu', init='uniform')(feature)
         #~ advantage2 = Dense(num_actions, init='uniform')(advantage1)
         #~ mean_advantage2 = Lambda(lambda x: K.mean(x, axis=1))(advantage2)
         #~ ones = K.ones([1, num_actions])
@@ -125,6 +104,27 @@ def create_model(window, input_shape, num_actions,
         #~ exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
         #~ q_value = merge([exp_value2, sum_adv], mode='sum')
         #~ model = Model(input=inputs, output=q_value)
+        
+        model_input_shape = tuple([window] + list(input_shape))
+        inputs = Input(shape=model_input_shape)
+        conv1 = Convolution2D(32, 8, 8, subsample=(4, 4),
+            border_mode='same', activation='relu', init='uniform')(inputs)
+        conv2 = Convolution2D(64, 4, 4, subsample=(2, 2),
+            border_mode='same', activation='relu', init='uniform')(conv1)
+        conv3 = Convolution2D(64, 3, 3, subsample=(1, 1),
+            border_mode='same', activation='relu', init='uniform')(conv2)
+        feature = Flatten()(conv3)
+        value1 = Dense(512, activation='relu', init='uniform')(feature)
+        value2 = Dense(1)(value1)
+        advantage1 = Dense(512, activation='relu', init='uniform')(feature)
+        advantage2 = Dense(num_actions, init='uniform')(advantage1)
+        mean_advantage2 = Lambda(lambda x: K.mean(x, axis=1))(advantage2)
+        ones = K.ones([1, num_actions])
+        exp_mean_advantage2 = Lambda(lambda x: K.dot(K.expand_dims(x, dim=1), -ones))(mean_advantage2)
+        sum_adv = merge([exp_mean_advantage2, advantage2], mode='sum')
+        exp_value2 = Lambda(lambda x: K.dot(x, ones))(value2)
+        q_value = merge([exp_value2, sum_adv], mode='sum')
+        model = Model(input=inputs, output=q_value)
     return model, model_input_shape
 
 
@@ -182,7 +182,7 @@ def main():  # noqa: D103
                         help='Replay buffer size')
     parser.add_argument('--target_reset_interval', default=10000, type=int,
                         help='Interval to reset the target network')
-    parser.add_argument('--num_burn_in', default=1000, type=int,
+    parser.add_argument('--num_burn_in', default=100000, type=int,
                         help='Number of samples filled in memory before update')
     parser.add_argument('--train_freq', default=1, type=int,
                         help='How often you actually update your Q-Network')
@@ -246,13 +246,14 @@ def main():  # noqa: D103
         memory = deque(maxlen=int(args.replay_buffer_size / args.num_frame))
     
     policy = {}
+    policy['random'] = UniformRandomPolicy(num_actions)
     policy['train'] = LinearDecayGreedyEpsilonPolicy(args.explore_prob + 0.5,
                                                      args.explore_prob,
                                                      args.num_train)
     policy['evaluation'] = GreedyEpsilonPolicy(args.explore_prob)
     state_shape = tuple([args.num_frame] + list(args.input_shape))
     
-    agent = DQNAgent(state_shape, model_input_shape,
+    agent = DQNAgent(state_shape, model_input_shape, num_actions,
                      q_network, proc, memory, policy,
                      args.discount, args.target_reset_interval,
                      args.num_burn_in, args.train_freq, args.batch_size,
@@ -269,22 +270,22 @@ def main():  # noqa: D103
     np.random.seed(15213)
     tf.set_random_seed(15213)
     
-    #~ try:
-    if args.read_weight:
-        weight_read_name = os.path.join(args.read_weight)
-        with open(weight_read_name, 'rb') as save:
-            saved_weights, agent.memory = pickle.load(save)
-        agent.q_network['online'].set_weights(saved_weights)
-        agent.q_network['target'].set_weights(saved_weights)
-        print 'weights & memory read from {:s}'.format(weight_read_name)
-    print '########## training #############'
-    if args.make_video is not None:
-        agent.make_video(env)
-        exit()
-    else:
-        agent.fit(env, args.num_train, args.max_episode_length)
-    #~ except:
-        #~ pass
+    try:
+        if args.read_weight:
+            weight_read_name = os.path.join(args.read_weight)
+            with open(weight_read_name, 'rb') as save:
+                saved_weights, agent.memory = pickle.load(save)
+            agent.q_network['online'].set_weights(saved_weights)
+            agent.q_network['target'].set_weights(saved_weights)
+            print 'weights & memory read from {:s}'.format(weight_read_name)
+        print '########## training #############'
+        if args.make_video is not None:
+            agent.make_video(env)
+            exit()
+        else:
+            agent.fit(env, args.num_train, args.max_episode_length)
+    except:
+        pass
     
     weight_save_name = os.path.join(args.output, 'online_weight.save')
     with open(weight_save_name, 'wb') as save:
