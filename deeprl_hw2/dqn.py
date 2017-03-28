@@ -3,6 +3,7 @@ import numpy as np
 import random
 import os
 import cPickle as pickle
+from gym import wrappers
 
 """Main DQN agent."""
 
@@ -285,8 +286,8 @@ class DQNAgent(object):
                     weight_save_name = os.path.join(self.output, 'online_weight_{:d}.save'.format(iter_num))
                     with open(weight_save_name, 'wb') as save:
                         weights = self.q_network['online'].get_weights()
-                        pickle.dump((weights, self.memory), save, protocol=pickle.HIGHEST_PROTOCOL)
-                    print 'weights & memory written to {:s}'.format(weight_save_name)
+                        pickle.dump((weights, None), save, protocol=pickle.HIGHEST_PROTOCOL)
+                    print 'weights & None written to {:s}'.format(weight_save_name)
                 
                 if done:
                     break
@@ -399,3 +400,47 @@ class DQNAgent(object):
             state_mem_next = np.stack(state_mem_next)
 
             state_mem = state_mem_next
+
+    def make_video_cherry(self, env_original, make_video_cherry):
+        """"""
+        window = self.state_shape[0]
+        max_episode_reward = 0.0
+        max_reward_video = ''
+        for i in range(self.eval_episodes):
+            video_directory = make_video_cherry + str(i)
+            env_original.reset()
+            env_video = wrappers.Monitor(env_original, video_directory, force=True)
+            env_video.reset()
+            state_mem = np.zeros(self.state_shape, dtype=np.uint8)
+            episode_reward = 0.0
+            done = False
+            while not done:
+                state = self.preprocessor.process_state_for_network(state_mem)
+                # get online q value and get action
+                input_state = np.stack([state.reshape(self.model_input_shape)])
+                q_online = self.q_network['online'].predict(input_state)
+                action = self.policy['evaluation'].select_action(q_online)
+    
+                # do action to get the next state
+                state_mem_next = []
+                done = False
+                for _ in range(window):
+                    obs_next, obs_reward, obs_done, info = env_video.step(action)
+                    if self.do_render:
+                        env_video.render()
+                    if obs_done:
+                        done = obs_done
+                        break
+                    obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
+                    state_mem_next.append(obs_next_mem)
+                    done = done or obs_done
+                    episode_reward += obs_reward
+                if done:
+                    break
+                state_mem_next = np.stack(state_mem_next)
+                state_mem = state_mem_next
+            if episode_reward > max_episode_reward:
+                max_episode_reward = episode_reward
+                max_reward_video = video_directory
+        return max_reward_video, max_episode_reward
+
