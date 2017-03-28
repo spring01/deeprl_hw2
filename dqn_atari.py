@@ -215,36 +215,36 @@ def main():  # noqa: D103
                         help='Do rendering or not')
     parser.add_argument('--make_video', default=None, type=str, help='Directory to write video to')
     parser.add_argument('--make_video_cherry', default=None, type=str, help='Directory to write cherry video to')
-    
+
     args = parser.parse_args()
     args.input_shape = tuple(args.input_shape)
-    
+
     args.output = get_output_folder(args.output, args.env)
-    
+
     env = gym.make(args.env)
     if args.make_video is not None:
         env = wrappers.Monitor(env, args.make_video, force=True)
 
     num_actions = env.action_space.n
-    
+
     opt_adam = Adam(lr=args.learning_rate)
-    
+
     model_online, model_input_shape = create_model(args.num_frame, args.input_shape,
         num_actions, model_name=args.model_name)
     model_target, model_input_shape = create_model(args.num_frame, args.input_shape,
         num_actions, model_name=args.model_name)
-    
+
     q_network = {}
     q_network['online'] = model_online
     q_network['target'] = model_target
-    
+
     proc = AtariPreprocessor(args.input_shape)
-    
+
     if args.replay_buffer_size == 0:
         memory = None
     else:
         memory = deque(maxlen=int(args.replay_buffer_size / args.num_frame))
-    
+
     policy = {}
     policy['random'] = UniformRandomPolicy(num_actions)
     policy['train'] = LinearDecayGreedyEpsilonPolicy(args.explore_prob + 0.5,
@@ -252,7 +252,7 @@ def main():  # noqa: D103
                                                      args.num_train)
     policy['evaluation'] = GreedyEpsilonPolicy(args.explore_prob)
     state_shape = tuple([args.num_frame] + list(args.input_shape))
-    
+
     agent = DQNAgent(state_shape, model_input_shape, num_actions,
                      q_network, proc, memory, policy,
                      args.discount, args.target_reset_interval,
@@ -270,26 +270,29 @@ def main():  # noqa: D103
     np.random.seed(15213)
     tf.set_random_seed(15213)
     
-    #~ try:
-    if args.read_weight:
-        weight_read_name = os.path.join(args.read_weight)
-        with open(weight_read_name, 'rb') as save:
-            saved_weights, agent.memory = pickle.load(save)
-        agent.q_network['online'].set_weights(saved_weights)
-        agent.q_network['target'].set_weights(saved_weights)
-        print 'weights & memory read from {:s}'.format(weight_read_name)
-    print '########## training #############'
-    if args.make_video is not None:
-        agent.make_video(env)
-        exit()
-    if args.make_video_cherry is not None:
-        max_reward_video, max_episode_reward = agent.make_video_cherry(env, args.make_video_cherry)
-        print 'max reward video with reward %f is in %s' % (max_episode_reward, max_reward_video)
-        exit()
-    else:
-        agent.fit(env, args.num_train, args.max_episode_length)
-    #~ except:
-        #~ pass
+    try:
+        if args.read_weight:
+            weight_read_name = os.path.join(args.read_weight)
+            with open(weight_read_name, 'rb') as save:
+                saved_weights, agent.memory = pickle.load(save)
+            agent.q_network['online'].set_weights(saved_weights)
+            agent.q_network['target'].set_weights(saved_weights)
+            print 'weights & memory read from {:s}'.format(weight_read_name)
+        print '########## training #############'
+        if args.make_video is not None:
+            agent.make_video(env)
+            exit()
+        if args.make_video_cherry is not None:
+            max_reward_video, max_episode_reward, median_reward_video, median_episode_reward = agent.make_video_cherry(env, args.make_video_cherry)
+            print 'max reward achieved is: %f' % max_episode_reward
+            print 'max reward video in: %s' % max_reward_video
+            print 'median reward achieved is: %f' % median_episode_reward
+            print 'median reward video in: %s' % median_reward_video
+            exit()
+        else:
+            agent.fit(env, args.num_train, args.max_episode_length)
+    except:
+        pass
     
     weight_save_name = os.path.join(args.output, 'online_weight.save')
     with open(weight_save_name, 'wb') as save:

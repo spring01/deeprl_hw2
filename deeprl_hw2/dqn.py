@@ -404,8 +404,8 @@ class DQNAgent(object):
     def make_video_cherry(self, env_original, make_video_cherry):
         """"""
         window = self.state_shape[0]
-        max_episode_reward = 0.0
-        max_reward_video = ''
+        all_episode_reward = []
+        all_video_directory = []
         for i in range(self.eval_episodes):
             video_directory = make_video_cherry + str(i)
             env_original.reset()
@@ -420,10 +420,11 @@ class DQNAgent(object):
                 input_state = np.stack([state.reshape(self.model_input_shape)])
                 q_online = self.q_network['online'].predict(input_state)
                 action = self.policy['evaluation'].select_action(q_online)
-    
+
                 # do action to get the next state
                 state_mem_next = []
                 done = False
+                reward = 0.0
                 for _ in range(window):
                     obs_next, obs_reward, obs_done, info = env_video.step(action)
                     if self.do_render:
@@ -434,13 +435,19 @@ class DQNAgent(object):
                     obs_next_mem = self.preprocessor.process_state_for_memory(obs_next)
                     state_mem_next.append(obs_next_mem)
                     done = done or obs_done
-                    episode_reward += obs_reward
+                    reward += obs_reward
+                episode_reward += reward
+                all_episode_reward.append(episode_reward)
+                all_video_directory.append(video_directory)
                 if done:
                     break
                 state_mem_next = np.stack(state_mem_next)
                 state_mem = state_mem_next
-            if episode_reward > max_episode_reward:
-                max_episode_reward = episode_reward
-                max_reward_video = video_directory
-        return max_reward_video, max_episode_reward
+            max_idx = np.argmax(all_episode_reward)
+            max_reward_video = all_video_directory[max_idx]
+            max_episode_reward = all_episode_reward[max_idx]
+            median_idx = np.argsort(all_episode_reward)[len(all_episode_reward) // 2]
+            median_reward_video = all_video_directory[median_idx]
+            median_episode_reward = all_episode_reward[median_idx]
+        return max_reward_video, max_episode_reward, median_reward_video, median_episode_reward
 
